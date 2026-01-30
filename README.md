@@ -125,20 +125,27 @@ git commit -m "Initial commit: Combinatorial algorithms suite with Hopcroft-Karp
 
 **For a public repository:**
 ```bash
-gh repo create combinatorial-suite --public --license apache-2.0 --source=. --push
+gh repo create combinatorial-suite --public --license apache-2.0
+git remote add origin https://github.com/YOUR_USERNAME/combinatorial-suite.git
+git pull origin main --allow-unrelated-histories --no-rebase  # If LICENSE was created
+git push -u origin main
 ```
 
 **For a private repository (share with collaborators only):**
 ```bash
-gh repo create combinatorial-suite --private --license apache-2.0 --source=. --push
+gh repo create combinatorial-suite --private --license apache-2.0
+git remote add origin https://github.com/YOUR_USERNAME/combinatorial-suite.git
+git pull origin main --allow-unrelated-histories --no-rebase  # If LICENSE was created
+git push -u origin main
 ```
+
+**Note:** Replace `YOUR_USERNAME` with your actual GitHub username. The pull command is needed if GitHub created a LICENSE file that isn't in your local repo.
 
 #### Option 2: Manual Setup
 
 ```bash
 # Create repo manually at github.com/new (choose public or private)
-git remote add origin git@github.com:YOUR_USERNAME/combinatorial-suite.git
-git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/combinatorial-suite.git
 git push -u origin main
 ```
 

@@ -22,7 +22,19 @@ Maximum cardinality bipartite matching in O(E√V) time.
 - C++ (optimized with -O3)
 - Rust (memory-safe, high-performance)
 
-See the [Hopcroft-Karp README](algorithms/hopcroft-karp/README.md) for algorithm details, complexity analysis, and usage examples.
+See the [Hopcroft-Karp README](algorithms/hopcroft-karp/hopcroft_karp_README.md) for algorithm details, complexity analysis, and usage examples.
+
+### Edmonds' Blossom Algorithm (Simple)
+Maximum cardinality matching in general graphs in O(V⁴) time.
+
+**Location**: `algorithms/edmonds-blossom/simple/`
+
+**Implementations**:
+- Python (clean, readable)
+- C++ (optimized with -O3)
+- Rust (memory-safe, high-performance)
+
+See the [Edmonds' Blossom Simple README](algorithms/edmonds-blossom/simple/edmonds_blossom_simple_README.md) for algorithm details, blossom contraction, and usage examples.
 
 ## Project Structure
 
@@ -30,21 +42,33 @@ See the [Hopcroft-Karp README](algorithms/hopcroft-karp/README.md) for algorithm
 combinatorial-suite/
 ├── README.md                            # This file
 ├── algorithms/
-│   └── hopcroft-karp/
-│       ├── hopcroft_karp_README.md      # Algorithm-specific documentation
-│       ├── python/hopcroft_karp.py
-│       ├── cpp/hopcroft_karp.cpp
-│       └── rust/hopcroft_karp.rs
+│   ├── hopcroft-karp/
+│   │   ├── hopcroft_karp_README.md      # Algorithm-specific documentation
+│   │   ├── python/hopcroft_karp.py
+│   │   ├── cpp/hopcroft_karp.cpp
+│   │   └── rust/hopcroft_karp.rs
+│   └── edmonds-blossom/
+│       └── simple/
+│           ├── edmonds_blossom_simple_README.md  # Algorithm-specific documentation
+│           ├── python/edmonds_blossom_simple.py
+│           ├── cpp/edmonds_blossom_simple.cpp
+│           └── rust/edmonds_blossom_simple.rs
 ├── benchmarks/
 │   └── benchmark.sh                     # Cross-language performance testing
 └── data/                                # Test data and datasets
     ├── data_README.md                   # Data format documentation
     ├── bipartite-unweighted/            # Bipartite unweighted graph data
+    │   ├── bipartite_unweighted_README.md
     │   ├── small/                       # Small test cases for correctness
     │   ├── medium/                      # Medium benchmarks (100-1000 nodes)
-    │   └── large/                       # Large benchmarks (10000+ nodes)
-    └── generate_bipartite_unweighted.py # Generator for bipartite unweighted
-                                         # graphs
+    │   ├── large/                       # Large benchmarks (10000+ nodes)
+    │   └── generate_bipartite_unweighted.py
+    └── general-unweighted/              # General (non-bipartite) unweighted
+        ├── general_unweighted_README.md # graph data
+        ├── small/                       # Small test cases for correctness
+        ├── medium/                      # Medium benchmarks (20-100 vertices)
+        ├── large/                       # Large benchmarks (1000+ vertices)
+        └── generate_general_unweighted.py
 ```
 
 ## Quick Start

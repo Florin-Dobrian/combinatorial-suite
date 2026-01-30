@@ -6,7 +6,7 @@ The Hopcroft-Karp algorithm finds the maximum cardinality matching in a bipartit
 
 ## What is a Bipartite Matching?
 
-A **bipartite graph** consists of two disjoint sets of vertices (left and right), where edges only connect vertices from different sets. A **matching** is a set of edges with no common vertices. A **maximum matching** is the largest possible matching.
+A **bipartite graph** consists of two disjoint sets of vertices (left and right), where edges only connect vertices from different sets. A **matching** is a set of edges with no common vertices. A **maximum cardinality matching** is the largest possible matching.
 
 ### Example
 ```
@@ -49,7 +49,7 @@ Hopcroft-Karp finds **all shortest paths** in one BFS, then augments along **mul
 ## When to Use
 
 **Good for**:
-- Finding maximum matchings in bipartite graphs
+- Finding maximum cardinality matchings in bipartite graphs
 - Assignment problems (jobs to workers, tasks to machines)
 - When you need the largest possible matching (not weighted)
 - Graphs with up to millions of vertices and edges
@@ -102,8 +102,8 @@ Maximum matching size: 3
 | Algorithm | Time Complexity | Use Case |
 |-----------|----------------|----------|
 | Ford-Fulkerson | O(VE²) | General max flow |
-| Hopcroft-Karp | O(E√V) | **Bipartite matching** |
-| Hungarian | O(V³) | **Weighted** bipartite matching |
+| Hopcroft-Karp | O(E√V) | Bipartite matching |
+| Hungarian | O(V³) | Weighted bipartite matching |
 | Edmonds Blossom | O(V²E) | General (non-bipartite) matching |
 
 ## Advanced Topics
@@ -126,7 +126,7 @@ Maximum matching size: 3
 
 ## References
 
-- Hopcroft, J. E., & Karp, R. M. (1973). "An n^(5/2) algorithm for maximum matchings in bipartite graphs". *SIAM Journal on Computing*, 2(4), 225-231.
+- Hopcroft, J. E., & Karp, R. M. (1973). "An n^(5/2) algorithm for maximum cardinality matchings in bipartite graphs". *SIAM Journal on Computing*, 2(4), 225-231.
 - Cormen, T. H., et al. (2009). *Introduction to Algorithms* (3rd ed.). MIT Press. Section 26.3.
 - Kleinberg, J., & Tardos, É. (2005). *Algorithm Design*. Addison-Wesley. Section 7.5.
 
@@ -193,6 +193,51 @@ chmod +x benchmark.sh
 ```
 
 This will compile and run all three implementations, showing performance comparisons.
+
+### Running with Test Data Files
+
+All implementations support loading graphs from data files:
+
+**Python:**
+```bash
+cd python/
+python3 hopcroft_karp.py ../../../data/bipartite-unweighted/small/bipartite_unweighted_simple.txt
+```
+
+Or with `uv`:
+```bash
+uv run hopcroft_karp.py ../../../data/bipartite-unweighted/small/bipartite_unweighted_simple.txt
+```
+
+**C++:**
+```bash
+cd cpp/
+g++ -O3 -std=c++17 hopcroft_karp.cpp -o hopcroft_karp_cpp
+./hopcroft_karp_cpp ../../../data/bipartite-unweighted/small/bipartite_unweighted_simple.txt
+```
+
+**Rust:**
+```bash
+cd rust/
+rustc -O hopcroft_karp.rs -o hopcroft_karp_rust
+./hopcroft_karp_rust ../../../data/bipartite-unweighted/small/bipartite_unweighted_simple.txt
+```
+
+**Try different test cases:**
+```bash
+# Small test cases for correctness
+python3 hopcroft_karp.py ../../../data/bipartite-unweighted/small/bipartite_unweighted_perfect.txt
+python3 hopcroft_karp.py ../../../data/bipartite-unweighted/small/bipartite_unweighted_bottleneck.txt
+
+# Medium benchmarks
+./hopcroft_karp_cpp ../../../data/bipartite-unweighted/medium/bipartite_unweighted_random_100.txt
+./hopcroft_karp_cpp ../../../data/bipartite-unweighted/medium/bipartite_unweighted_dense_100.txt
+
+# Large benchmarks
+./hopcroft_karp_rust ../../../data/bipartite-unweighted/large/bipartite_unweighted_dense_10000.txt
+```
+
+See the [data README](../../data/data_README.md) for details on available datasets and their properties.
 
 ## Usage Examples
 

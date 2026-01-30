@@ -4,6 +4,8 @@
  */
 
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <vector>
 #include <queue>
 #include <unordered_map>
@@ -141,6 +143,40 @@ public:
     }
 };
 
+// Load graph from file
+bool load_graph_from_file(const std::string& filename,
+                          std::vector<std::string>& left,
+                          std::vector<std::string>& right,
+                          std::vector<std::pair<std::string, std::string>>& edges) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return false;
+    }
+    
+    int left_count, right_count, edge_count;
+    file >> left_count >> right_count >> edge_count;
+    
+    left.clear();
+    right.clear();
+    edges.clear();
+    
+    for (int i = 0; i < left_count; i++) {
+        left.push_back("L" + std::to_string(i));
+    }
+    for (int i = 0; i < right_count; i++) {
+        right.push_back("R" + std::to_string(i));
+    }
+    
+    for (int i = 0; i < edge_count; i++) {
+        int u, v;
+        file >> u >> v;
+        edges.push_back({"L" + std::to_string(u), "R" + std::to_string(v)});
+    }
+    
+    file.close();
+    return true;
+}
+
 // Generate a large random bipartite graph for benchmarking
 std::vector<std::pair<std::string, std::string>> generate_large_graph(
     int left_size, int right_size, int edges_per_left_node) {
@@ -157,61 +193,86 @@ std::vector<std::pair<std::string, std::string>> generate_large_graph(
     return edges;
 }
 
-int main() {
-    // Example usage
-    std::cout << "C++ Hopcroft-Karp Implementation\n";
-    std::cout << "=================================\n\n";
-    
-    // Small example
-    std::vector<std::string> left = {"A", "B", "C", "D"};
-    std::vector<std::string> right = {"1", "2", "3", "4"};
-    std::vector<std::pair<std::string, std::string>> edges = {
-        {"A", "1"}, {"A", "2"},
-        {"B", "2"}, {"B", "3"},
-        {"C", "3"}, {"C", "4"},
-        {"D", "4"}
-    };
-    
-    HopcroftKarp hk(left, right, edges);
-    auto matching = hk.maximum_matching();
-    
-    std::cout << "Small example:\n";
-    std::cout << "Matching size: " << matching.size() << "\n";
-    std::cout << "Matching: ";
-    for (const auto& edge : matching) {
-        std::cout << "(" << edge.first << "," << edge.second << ") ";
-    }
-    std::cout << "\n\n";
-    
-    // Benchmark with larger graph
-    std::cout << "Benchmarking with larger graph...\n";
-    int left_size = 1000;
-    int right_size = 1000;
-    int edges_per_node = 10;
-    
-    std::vector<std::string> large_left, large_right;
-    for (int i = 0; i < left_size; i++) {
-        large_left.push_back("L" + std::to_string(i));
-    }
-    for (int i = 0; i < right_size; i++) {
-        large_right.push_back("R" + std::to_string(i));
-    }
-    
-    auto large_edges = generate_large_graph(left_size, right_size, edges_per_node);
-    
-    std::cout << "Graph size: " << left_size << " left nodes, " 
-              << right_size << " right nodes, " 
-              << large_edges.size() << " edges\n";
+void run_example(const std::vector<std::string>& left,
+                 const std::vector<std::string>& right,
+                 const std::vector<std::pair<std::string, std::string>>& edges,
+                 const std::string& description) {
+    std::cout << description << "\n";
+    std::cout << "Graph: " << left.size() << " left nodes, " 
+              << right.size() << " right nodes, " 
+              << edges.size() << " edges\n";
     
     auto start = std::chrono::high_resolution_clock::now();
-    HopcroftKarp large_hk(large_left, large_right, large_edges);
-    auto large_matching = large_hk.maximum_matching();
+    HopcroftKarp hk(left, right, edges);
+    auto matching = hk.maximum_matching();
     auto end = std::chrono::high_resolution_clock::now();
     
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     
-    std::cout << "Matching size: " << large_matching.size() << "\n";
+    std::cout << "Matching size: " << matching.size() << "\n";
+    if (matching.size() <= 10) {
+        std::cout << "Matching: ";
+        for (const auto& edge : matching) {
+            std::cout << "(" << edge.first << "," << edge.second << ") ";
+        }
+        std::cout << "\n";
+    }
     std::cout << "Execution time: " << duration.count() << " ms\n";
+    std::cout << "\n";
+}
+
+int main(int argc, char* argv[]) {
+    std::cout << "C++ Hopcroft-Karp Implementation\n";
+    std::cout << "=================================\n\n";
+    
+    // Check if a file was provided
+    if (argc > 1) {
+        std::string filename = argv[1];
+        std::cout << "Loading graph from: " << filename << "\n";
+        
+        std::vector<std::string> left, right;
+        std::vector<std::pair<std::string, std::string>> edges;
+        
+        if (!load_graph_from_file(filename, left, right, edges)) {
+            std::cerr << "Error: Could not open file '" << filename << "'\n";
+            return 1;
+        }
+        
+        run_example(left, right, edges, "File: " + filename);
+    } else {
+        // Run built-in examples
+        std::cout << "Running built-in examples (use: ./hopcroft_karp_cpp <filename> to load from file)\n\n";
+        
+        // Small example
+        std::vector<std::string> left = {"A", "B", "C", "D"};
+        std::vector<std::string> right = {"1", "2", "3", "4"};
+        std::vector<std::pair<std::string, std::string>> edges = {
+            {"A", "1"}, {"A", "2"},
+            {"B", "2"}, {"B", "3"},
+            {"C", "3"}, {"C", "4"},
+            {"D", "4"}
+        };
+        
+        run_example(left, right, edges, "Small example:");
+        
+        // Benchmark with larger graph
+        std::cout << "Benchmarking with larger graph...\n";
+        int left_size = 1000;
+        int right_size = 1000;
+        int edges_per_node = 10;
+        
+        std::vector<std::string> large_left, large_right;
+        for (int i = 0; i < left_size; i++) {
+            large_left.push_back("L" + std::to_string(i));
+        }
+        for (int i = 0; i < right_size; i++) {
+            large_right.push_back("R" + std::to_string(i));
+        }
+        
+        auto large_edges = generate_large_graph(left_size, right_size, edges_per_node);
+        
+        run_example(large_left, large_right, large_edges, "Large benchmark:");
+    }
     
     return 0;
 }

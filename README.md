@@ -28,16 +28,23 @@ See the [Hopcroft-Karp README](algorithms/hopcroft-karp/README.md) for algorithm
 
 ```
 combinatorial-suite/
-├── README.md                    # This file
+├── README.md                            # This file
 ├── algorithms/
 │   └── hopcroft-karp/
-│       ├── README.md            # Algorithm-specific documentation
+│       ├── hopcroft_karp_README.md      # Algorithm-specific documentation
 │       ├── python/hopcroft_karp.py
 │       ├── cpp/hopcroft_karp.cpp
 │       └── rust/hopcroft_karp.rs
 ├── benchmarks/
-│   └── benchmark.sh             # Cross-language performance testing
-└── data/                        # Test data and datasets
+│   └── benchmark.sh                     # Cross-language performance testing
+└── data/                                # Test data and datasets
+    ├── data_README.md                   # Data format documentation
+    ├── bipartite-unweighted/            # Bipartite unweighted graph data
+    │   ├── small/                       # Small test cases for correctness
+    │   ├── medium/                      # Medium benchmarks (100-1000 nodes)
+    │   └── large/                       # Large benchmarks (10000+ nodes)
+    └── generate_bipartite_unweighted.py # Generator for bipartite unweighted
+                                         # graphs
 ```
 
 ## Quick Start
@@ -109,23 +116,82 @@ EOF
 
 # Stage and commit
 git add .
-git commit -m "Initial commit: Hopcroft-Karp algorithm in Python, C++, and Rust"
+git commit -m "Initial commit: Combinatorial algorithms suite with Hopcroft-Karp (Python, C++, Rust)"
 ```
 
 ### Push to GitHub
 
-**Option 1: Using GitHub CLI (recommended if installed)**
+#### Option 1: Using GitHub CLI (recommended)
+
+**For a public repository:**
 ```bash
 gh repo create combinatorial-suite --public --license apache-2.0 --source=. --push
 ```
 
-**Option 2: Manual setup**
+**For a private repository (share with collaborators only):**
 ```bash
-# Create repo manually at github.com/new
+gh repo create combinatorial-suite --private --license apache-2.0 --source=. --push
+```
+
+#### Option 2: Manual Setup
+
+```bash
+# Create repo manually at github.com/new (choose public or private)
 git remote add origin git@github.com:YOUR_USERNAME/combinatorial-suite.git
 git branch -M main
 git push -u origin main
 ```
+
+### Adding Collaborators (Private Repositories)
+
+If you created a private repository, you can add collaborators to give them access.
+
+#### Via GitHub CLI:
+```bash
+# Add a collaborator
+gh repo add-collaborator COLLABORATOR_USERNAME
+
+# Example:
+gh repo add-collaborator john_doe
+```
+
+#### Via GitHub Web Interface:
+1. Go to your repository: `github.com/YOUR_USERNAME/combinatorial-suite`
+2. Click **Settings** (top right)
+3. Click **Collaborators** in the left sidebar
+4. Click **Add people**
+5. Enter their GitHub username or email
+6. Select the person and choose permission level (Read, Write, or Admin)
+7. Click **Add [username] to this repository**
+
+They'll receive an email invitation. Once accepted, they can access the repository.
+
+### Making a Private Repository Public
+
+You can change visibility at any time:
+
+#### Via GitHub CLI:
+```bash
+gh repo edit combinatorial-suite --visibility public
+```
+
+#### Via GitHub Web Interface:
+1. Go to your repository on GitHub
+2. Click **Settings**
+3. Scroll to the **Danger Zone** section (bottom of page)
+4. Click **Change visibility**
+5. Select **Make public**
+6. Confirm by typing the repository name
+7. Click **I understand, make this repository public**
+
+**Note:** Once public, anyone can see all code and commit history. You can change back to private if needed.
+
+### Repository Visibility Summary
+
+| Visibility | Who Can See | Use Case |
+|------------|-------------|----------|
+| **Public** | Everyone on the internet | Open source, portfolios, sharing with community |
+| **Private** | Only you and invited collaborators | Work in progress, proprietary code, selective sharing |
 
 The `.gitignore` file excludes:
 - Compiled binaries (C++ and Rust executables)

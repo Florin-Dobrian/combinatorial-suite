@@ -4,6 +4,9 @@
  */
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::env;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -146,6 +149,60 @@ impl HopcroftKarp {
     }
 }
 
+// Load graph from file
+fn load_graph_from_file(filename: &str) -> io::Result<(Vec<String>, Vec<String>, Vec<(String, String)>)> {
+    let file = File::open(filename)?;
+    let mut lines = BufReader::new(file).lines();
+    
+    let first_line = lines.next().ok_or(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "Empty file"
+    ))??;
+    
+    let parts: Vec<usize> = first_line
+        .split_whitespace()
+        .map(|s| s.parse().map_err(|_| io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid number format"
+        )))
+        .collect::<Result<Vec<_>, _>>()?;
+    
+    if parts.len() != 3 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "First line must have 3 numbers"
+        ));
+    }
+    
+    let (left_count, right_count, edge_count) = (parts[0], parts[1], parts[2]);
+    
+    let left: Vec<String> = (0..left_count).map(|i| format!("L{}", i)).collect();
+    let right: Vec<String> = (0..right_count).map(|i| format!("R{}", i)).collect();
+    
+    let mut edges = Vec::new();
+    for line in lines.take(edge_count) {
+        let line = line?;
+        let nums: Vec<usize> = line
+            .split_whitespace()
+            .map(|s| s.parse().map_err(|_| io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid edge format"
+            )))
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        if nums.len() != 2 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Each edge line must have 2 numbers"
+            ));
+        }
+        
+        edges.push((format!("L{}", nums[0]), format!("R{}", nums[1])));
+    }
+    
+    Ok((left, right, edges))
+}
+
 // Generate a large random bipartite graph for benchmarking
 fn generate_large_graph(
     left_size: usize,
@@ -167,67 +224,97 @@ fn generate_large_graph(
     edges
 }
 
+fn run_example(
+    left: &[String],
+    right: &[String],
+    edges: &[(String, String)],
+    description: &str,
+) {
+    println!("{}", description);
+    println!(
+        "Graph: {} left nodes, {} right nodes, {} edges",
+        left.len(),
+        right.len(),
+        edges.len()
+    );
+    
+    let start = Instant::now();
+    let mut hk = HopcroftKarp::new(left, right, edges);
+    let matching = hk.maximum_matching();
+    let duration = start.elapsed();
+    
+    println!("Matching size: {}", matching.len());
+    if matching.len() <= 10 {
+        print!("Matching: ");
+        for (u, v) in &matching {
+            print!("({},{}) ", u, v);
+        }
+        println!();
+    }
+    println!("Execution time: {} ms", duration.as_millis());
+    println!();
+}
+
 fn main() {
     println!("Rust Hopcroft-Karp Implementation");
     println!("==================================\n");
     
-    // Small example
-    let left: Vec<String> = vec!["A", "B", "C", "D"]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect();
-    let right: Vec<String> = vec!["1", "2", "3", "4"]
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect();
-    let edges: Vec<(String, String)> = vec![
-        ("A", "1"), ("A", "2"),
-        ("B", "2"), ("B", "3"),
-        ("C", "3"), ("C", "4"),
-        ("D", "4"),
-    ]
-    .into_iter()
-    .map(|(a, b)| (a.to_string(), b.to_string()))
-    .collect();
+    let args: Vec<String> = env::args().collect();
     
-    let mut hk = HopcroftKarp::new(&left, &right, &edges);
-    let matching = hk.maximum_matching();
-    
-    println!("Small example:");
-    println!("Matching size: {}", matching.len());
-    print!("Matching: ");
-    for (u, v) in &matching {
-        print!("({},{}) ", u, v);
+    // Check if a file was provided
+    if args.len() > 1 {
+        let filename = &args[1];
+        println!("Loading graph from: {}", filename);
+        
+        match load_graph_from_file(filename) {
+            Ok((left, right, edges)) => {
+                run_example(&left, &right, &edges, &format!("File: {}", filename));
+            }
+            Err(e) => {
+                eprintln!("Error loading file: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Run built-in examples
+        println!("Running built-in examples (use: ./hopcroft_karp_rust <filename> to load from file)\n");
+        
+        // Small example
+        let left: Vec<String> = vec!["A", "B", "C", "D"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        let right: Vec<String> = vec!["1", "2", "3", "4"]
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+        let edges: Vec<(String, String)> = vec![
+            ("A", "1"), ("A", "2"),
+            ("B", "2"), ("B", "3"),
+            ("C", "3"), ("C", "4"),
+            ("D", "4"),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        
+        run_example(&left, &right, &edges, "Small example:");
+        
+        // Benchmark with larger graph
+        println!("Benchmarking with larger graph...");
+        let left_size = 1000;
+        let right_size = 1000;
+        let edges_per_node = 10;
+        
+        let large_left: Vec<String> = (0..left_size)
+            .map(|i| format!("L{}", i))
+            .collect();
+        let large_right: Vec<String> = (0..right_size)
+            .map(|i| format!("R{}", i))
+            .collect();
+        
+        let large_edges = generate_large_graph(left_size, right_size, edges_per_node);
+        
+        run_example(&large_left, &large_right, &large_edges, "Large benchmark:");
     }
-    println!("\n");
-    
-    // Benchmark with larger graph
-    println!("Benchmarking with larger graph...");
-    let left_size = 1000;
-    let right_size = 1000;
-    let edges_per_node = 10;
-    
-    let large_left: Vec<String> = (0..left_size)
-        .map(|i| format!("L{}", i))
-        .collect();
-    let large_right: Vec<String> = (0..right_size)
-        .map(|i| format!("R{}", i))
-        .collect();
-    
-    let large_edges = generate_large_graph(left_size, right_size, edges_per_node);
-    
-    println!(
-        "Graph size: {} left nodes, {} right nodes, {} edges",
-        left_size,
-        right_size,
-        large_edges.len()
-    );
-    
-    let start = Instant::now();
-    let mut large_hk = HopcroftKarp::new(&large_left, &large_right, &large_edges);
-    let large_matching = large_hk.maximum_matching();
-    let duration = start.elapsed();
-    
-    println!("Matching size: {}", large_matching.len());
-    println!("Execution time: {} ms", duration.as_millis());
 }

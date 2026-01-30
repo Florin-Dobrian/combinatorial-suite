@@ -5,6 +5,7 @@ Time complexity: O(E * sqrt(V))
 
 from collections import deque, defaultdict
 import time
+import sys
 
 
 class HopcroftKarp:
@@ -121,6 +122,32 @@ class HopcroftKarp:
         return matching
 
 
+def load_graph_from_file(filename):
+    """
+    Load a bipartite graph from a file.
+    
+    File format:
+        <left_count> <right_count> <edge_count>
+        <left_node> <right_node>
+        ...
+    
+    Returns:
+        (left_nodes, right_nodes, edges) tuple
+    """
+    with open(filename, 'r') as f:
+        left_count, right_count, edge_count = map(int, f.readline().split())
+        
+        left = [f"L{i}" for i in range(left_count)]
+        right = [f"R{i}" for i in range(right_count)]
+        edges = []
+        
+        for _ in range(edge_count):
+            u, v = map(int, f.readline().split())
+            edges.append((f"L{u}", f"R{v}"))
+    
+    return left, right, edges
+
+
 def generate_large_graph(left_size, right_size, edges_per_left_node):
     """Generate a large random bipartite graph for benchmarking."""
     edges = []
@@ -131,49 +158,68 @@ def generate_large_graph(left_size, right_size, edges_per_left_node):
     return edges
 
 
-def main():
-    print("Python Hopcroft-Karp Implementation")
-    print("====================================\n")
-    
-    # Small example
-    left = ['A', 'B', 'C', 'D']
-    right = ['1', '2', '3', '4']
-    edges = [
-        ('A', '1'), ('A', '2'),
-        ('B', '2'), ('B', '3'),
-        ('C', '3'), ('C', '4'),
-        ('D', '4')
-    ]
-    
-    hk = HopcroftKarp(left, right, edges)
-    matching = hk.maximum_matching()
-    
-    print("Small example:")
-    print(f"Matching size: {len(matching)}")
-    print(f"Matching: {matching}")
-    print()
-    
-    # Benchmark with larger graph
-    print("Benchmarking with larger graph...")
-    left_size = 1000
-    right_size = 1000
-    edges_per_node = 10
-    
-    large_left = [f"L{i}" for i in range(left_size)]
-    large_right = [f"R{i}" for i in range(right_size)]
-    large_edges = generate_large_graph(left_size, right_size, edges_per_node)
-    
-    print(f"Graph size: {left_size} left nodes, {right_size} right nodes, {len(large_edges)} edges")
+def run_example(left, right, edges, description):
+    """Run the algorithm on a graph and print results."""
+    print(f"{description}")
+    print(f"Graph: {len(left)} left nodes, {len(right)} right nodes, {len(edges)} edges")
     
     start = time.time()
-    hk = HopcroftKarp(large_left, large_right, large_edges)
+    hk = HopcroftKarp(left, right, edges)
     matching = hk.maximum_matching()
     end = time.time()
     
     duration_ms = (end - start) * 1000
     
     print(f"Matching size: {len(matching)}")
+    if len(matching) <= 10:
+        print(f"Matching: {matching}")
     print(f"Execution time: {duration_ms:.2f} ms")
+    print()
+
+
+def main():
+    print("Python Hopcroft-Karp Implementation")
+    print("====================================\n")
+    
+    # Check if a file was provided
+    if len(sys.argv) > 1:
+        filename = sys.argv[1]
+        print(f"Loading graph from: {filename}")
+        try:
+            left, right, edges = load_graph_from_file(filename)
+            run_example(left, right, edges, f"File: {filename}")
+        except FileNotFoundError:
+            print(f"Error: File '{filename}' not found")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error loading file: {e}")
+            sys.exit(1)
+    else:
+        # Run built-in examples
+        print("Running built-in examples (use: python hopcroft_karp.py <filename> to load from file)\n")
+        
+        # Small example
+        left = ['A', 'B', 'C', 'D']
+        right = ['1', '2', '3', '4']
+        edges = [
+            ('A', '1'), ('A', '2'),
+            ('B', '2'), ('B', '3'),
+            ('C', '3'), ('C', '4'),
+            ('D', '4')
+        ]
+        run_example(left, right, edges, "Small example:")
+        
+        # Benchmark with larger graph
+        print("Benchmarking with larger graph...")
+        left_size = 1000
+        right_size = 1000
+        edges_per_node = 10
+        
+        large_left = [f"L{i}" for i in range(left_size)]
+        large_right = [f"R{i}" for i in range(right_size)]
+        large_edges = generate_large_graph(left_size, right_size, edges_per_node)
+        
+        run_example(large_left, large_right, large_edges, "Large benchmark:")
 
 
 if __name__ == "__main__":

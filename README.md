@@ -27,14 +27,14 @@ See the [Hopcroft-Karp README](algorithms/hopcroft-karp/hopcroft_karp_README.md)
 ### Edmonds' Blossom Algorithm (Simple)
 Maximum cardinality matching in general graphs in O(V⁴) time.
 
-**Location**: `algorithms/edmonds-blossom/simple/`
+**Location**: `algorithms/edmonds-blossom-simple/`
 
 **Implementations**:
 - Python (clean, readable)
 - C++ (optimized with -O3)
 - Rust (memory-safe, high-performance)
 
-See the [Edmonds' Blossom Simple README](algorithms/edmonds-blossom/simple/edmonds_blossom_simple_README.md) for algorithm details, blossom contraction, and usage examples.
+See the [Edmonds' Blossom Simple README](algorithms/edmonds-blossom-simple/edmonds_blossom_simple_README.md) for algorithm details, blossom contraction, and usage examples.
 
 ## Project Structure
 
@@ -47,12 +47,11 @@ combinatorial-suite/
 │   │   ├── python/hopcroft_karp.py
 │   │   ├── cpp/hopcroft_karp.cpp
 │   │   └── rust/hopcroft_karp.rs
-│   └── edmonds-blossom/
-│       └── simple/
-│           ├── edmonds_blossom_simple_README.md  # Algorithm-specific documentation
-│           ├── python/edmonds_blossom_simple.py
-│           ├── cpp/edmonds_blossom_simple.cpp
-│           └── rust/edmonds_blossom_simple.rs
+│   └── edmonds-blossom-simple/
+│       ├── edmonds_blossom_simple_README.md  # Algorithm-specific documentation
+│       ├── python/edmonds_blossom_simple.py
+│       ├── cpp/edmonds_blossom_simple.cpp
+│       └── rust/edmonds_blossom_simple.rs
 ├── benchmarks/
 │   └── benchmark.sh                     # Cross-language performance testing
 └── data/                                # Test data and datasets

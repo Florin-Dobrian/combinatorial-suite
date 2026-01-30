@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# C++
+*.o
+hopcroft_karp_cpp
+
+# Rust
+hopcroft_karp_rust
+*.rlib
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

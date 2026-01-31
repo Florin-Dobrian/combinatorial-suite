@@ -10,6 +10,25 @@ This repository provides well-documented, benchmarked implementations of classic
 - **Direct performance comparisons** across languages
 - **Educational understanding** of algorithm behavior
 
+## Implementation Features
+
+All implementations follow best practices for performance and correctness:
+
+**✅ Integer Vertices Only**
+- All vertices are integers (0, 1, 2, ...), not strings
+- Better performance and cache locality
+
+**✅ Deterministic Behavior**
+- C++: Uses `vector`, NOT `unordered_map`/`unordered_set`
+- Rust: Uses `Vec`, NOT `HashMap`/`HashSet`
+- Python: Uses `list`, NOT `set()` for graph adjacency
+- Sorted adjacency lists guarantee reproducible results
+
+**✅ Comprehensive Validation**
+- All implementations validate output correctness
+- Check edge existence, vertex uniqueness, degree constraints
+- Detailed error reporting
+
 ## Current Algorithms
 
 ### Hopcroft-Karp Algorithm
@@ -36,6 +55,20 @@ Maximum cardinality matching in general graphs in O(V⁴) time.
 
 See the [Edmonds' Blossom Simple README](algorithms/edmonds-blossom-simple/edmonds_blossom_simple_README.md) for algorithm details, blossom contraction, and usage examples.
 
+### Edmonds' Blossom Algorithm (Optimized)
+Maximum cardinality matching in general graphs in O(V²E) time.
+
+**Location**: `algorithms/edmonds-blossom-optimized/`
+
+**Implementations**:
+- Python (clean, readable)
+- C++ (optimized with -O3)
+- Rust (memory-safe, high-performance)
+
+**Performance**: 5-10× faster than simple version on large graphs (1000+ vertices).
+
+See the [Edmonds' Blossom Optimized README](algorithms/edmonds-blossom-optimized/edmonds_blossom_optimized_README.md) for optimization details, complexity improvements, and performance comparisons.
+
 ## Project Structure
 
 ```
@@ -47,11 +80,16 @@ combinatorial-suite/
 │   │   ├── python/hopcroft_karp.py
 │   │   ├── cpp/hopcroft_karp.cpp
 │   │   └── rust/hopcroft_karp.rs
-│   └── edmonds-blossom-simple/
-│       ├── edmonds_blossom_simple_README.md  # Algorithm-specific documentation
-│       ├── python/edmonds_blossom_simple.py
-│       ├── cpp/edmonds_blossom_simple.cpp
-│       └── rust/edmonds_blossom_simple.rs
+│   ├── edmonds-blossom-simple/
+│   │   ├── edmonds_blossom_simple_README.md  # Algorithm-specific documentation
+│   │   ├── python/edmonds_blossom_simple.py
+│   │   ├── cpp/edmonds_blossom_simple.cpp
+│   │   └── rust/edmonds_blossom_simple.rs
+│   └── edmonds-blossom-optimized/
+│       ├── edmonds_blossom_optimized_README.md  # Algorithm-specific documentation
+│       ├── python/edmonds_blossom_optimized.py
+│       ├── cpp/edmonds_blossom_optimized.cpp
+│       └── rust/edmonds_blossom_optimized.rs
 ├── benchmarks/
 │   └── benchmark.sh                     # Cross-language performance testing
 └── data/                                # Test data and datasets
@@ -79,20 +117,41 @@ combinatorial-suite/
 
 ### Running an Algorithm
 
+#### With Python
 ```bash
-# Python
 cd algorithms/hopcroft-karp/python/
-python3 hopcroft_karp.py
+python3 hopcroft_karp.py <datafile>
 
-# C++
+# Or with uv (faster, modern Python):
+uv run hopcroft_karp.py <datafile>
+```
+
+#### With C++
+```bash
 cd algorithms/hopcroft-karp/cpp/
-g++ -O3 -std=c++17 hopcroft_karp.cpp -o hopcroft_karp_cpp
-./hopcroft_karp_cpp
+g++ -O3 -std=c++17 hopcroft_karp.cpp -o hopcroft_karp
+./hopcroft_karp <datafile>
+```
 
-# Rust
+#### With Rust
+```bash
 cd algorithms/hopcroft-karp/rust/
-rustc -O hopcroft_karp.rs -o hopcroft_karp_rust
-./hopcroft_karp_rust
+rustc -O hopcroft_karp.rs -o hopcroft_karp
+./hopcroft_karp <datafile>
+```
+
+### Example with Test Data
+
+```bash
+# Hopcroft-Karp on bipartite graph
+cd algorithms/hopcroft-karp/cpp/
+g++ -O3 -std=c++17 hopcroft_karp.cpp -o hopcroft_karp
+./hopcroft_karp ../../../data/bipartite-unweighted/large/bipartite_unweighted_dense_10000.txt
+
+# Edmonds Blossom (optimized) on general graph
+cd algorithms/edmonds-blossom-optimized/cpp/
+g++ -O3 -std=c++17 edmonds_blossom_optimized.cpp -o edmonds_blossom_optimized
+./edmonds_blossom_optimized ../../../data/general-unweighted/large/general_unweighted_sparse_10000.txt
 ```
 
 ### Running Benchmarks
@@ -102,6 +161,18 @@ cd benchmarks/
 chmod +x benchmark.sh
 ./benchmark.sh
 ```
+
+## Performance Comparison
+
+**Hopcroft-Karp** (10,000 nodes, bipartite):
+- Python: ~10-15 ms
+- C++: ~5-8 ms (2× faster)
+- Rust: ~5-8 ms (2× faster)
+
+**Edmonds Blossom Optimized** (10,000 vertices, general):
+- Python: ~5-10 sec
+- C++: ~380-400 ms (15-20× faster)
+- Rust: ~380-400 ms (15-20× faster)
 
 ## Git Setup
 
@@ -123,10 +194,13 @@ __pycache__/
 
 # C++
 *.o
-hopcroft_karp_cpp
+*_cpp
+hopcroft_karp
+edmonds_blossom_simple
+edmonds_blossom_optimized
 
 # Rust
-hopcroft_karp_rust
+*_rust
 *.rlib
 
 # macOS
@@ -139,7 +213,7 @@ EOF
 
 # Stage and commit
 git add .
-git commit -m "Initial commit: Combinatorial algorithms suite with Hopcroft-Karp (Python, C++, Rust)"
+git commit -m "Initial commit: Combinatorial algorithms suite with matching algorithms"
 ```
 
 ### Push to GitHub

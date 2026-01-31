@@ -1,5 +1,5 @@
 /*
- * Edmonds' Blossom Algorithm (Simple Version) for Maximum Cardinality Matching
+ * Edmonds' Blossom Algorithm (Optimized Version) for Maximum Cardinality Matching
  * Time complexity: O(V²E)
  * 
  * This version uses efficient data structures and label tracking.
@@ -12,7 +12,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::time::Instant;
 
-struct EdmondsBlossomSimple {
+struct EdmondsBlossomOptimized {
     vertex_count: usize,
     // Adjacency list: vertex index -> vector of neighbor indices
     graph: Vec<Vec<usize>>,
@@ -22,7 +22,7 @@ struct EdmondsBlossomSimple {
     vertex_names: Vec<String>,
 }
 
-impl EdmondsBlossomSimple {
+impl EdmondsBlossomOptimized {
     fn new(vertices: &[String], edges: &[(usize, usize)]) -> Self {
         let vertex_count = vertices.len();
         let mut graph = vec![Vec::new(); vertex_count];
@@ -43,7 +43,7 @@ impl EdmondsBlossomSimple {
         let mate = vec![None; vertex_count];
         let vertex_names = vertices.to_vec();
         
-        EdmondsBlossomSimple {
+        EdmondsBlossomOptimized {
             vertex_count,
             graph,
             mate,
@@ -439,7 +439,7 @@ fn run_example(vertices: &[String], edges: &[(usize, usize)], description: &str)
     println!("Graph: {} vertices, {} edges", vertices.len(), edges.len());
     
     let start = Instant::now();
-    let mut eb = EdmondsBlossomSimple::new(vertices, edges);
+    let mut eb = EdmondsBlossomOptimized::new(vertices, edges);
     let matching = eb.maximum_matching();
     let duration = start.elapsed();
     
@@ -456,7 +456,7 @@ fn run_example(vertices: &[String], edges: &[(usize, usize)], description: &str)
 }
 
 fn main() {
-    println!("Edmonds' Blossom Algorithm (Simple) - Rust Implementation");
+    println!("Edmonds' Blossom Algorithm (Optimized) - Rust Implementation");
     println!("==============================================================\n");
     
     let args: Vec<String> = env::args().collect();

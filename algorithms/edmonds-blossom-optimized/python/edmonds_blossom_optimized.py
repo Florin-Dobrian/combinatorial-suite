@@ -1,6 +1,6 @@
 """
-Edmonds' Blossom Algorithm (Simple Version) for Maximum Cardinality Matching
-Time complexity: O(V⁴)
+Edmonds' Blossom Algorithm (Optimized Version) for Maximum Cardinality Matching
+Time complexity: O(V²E)
 
 This is the straightforward implementation that finds one augmenting path per iteration.
 Uses integers for vertices and deterministic data structures.
@@ -11,7 +11,7 @@ import time
 import sys
 
 
-class EdmondsBlossomSimple:
+class EdmondsBlossomOptimized:
     def __init__(self, vertex_count, edges):
         """
         Initialize the graph for maximum cardinality matching.
@@ -287,7 +287,7 @@ def run_file_example(filename):
         print(f"Graph: {vertex_count} vertices, {len(edges)} edges")
         
         start = time.time()
-        eb = EdmondsBlossomSimple(vertex_count, edges)
+        eb = EdmondsBlossomOptimized(vertex_count, edges)
         matching = eb.maximum_matching()
         end = time.time()
         
@@ -309,7 +309,7 @@ def run_file_example(filename):
 
 
 def main():
-    print("Edmonds' Blossom Algorithm (Simple) - Python Implementation")
+    print("Edmonds' Blossom Algorithm (Optimized) - Python Implementation")
     print("============================================================\n")
     
     if len(sys.argv) > 1:

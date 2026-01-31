@@ -6,9 +6,8 @@
 #include <chrono>
 #include <algorithm>
 
-class EdmondsBlossomSimple {
+class EdmondsBlossomOptimized {
 private:
-    static constexpr bool DEBUG = false;  // Set to true to enable logging
     int vertex_count;
     std::vector<std::vector<int>> graph;
     std::vector<int> mate;  // -1 means unmatched
@@ -178,7 +177,7 @@ private:
     }
 
 public:
-    EdmondsBlossomSimple(int n, const std::vector<std::pair<int, int>>& edges) {
+    EdmondsBlossomOptimized(int n, const std::vector<std::pair<int, int>>& edges) {
         vertex_count = n;
         graph.resize(n);
         mate.assign(n, -1);
@@ -196,22 +195,38 @@ public:
     }
     
     std::vector<std::pair<int, int>> maximum_matching() {
+        
         bool improved = true;
+        int iteration = 0;
+        
         
         while (improved) {
             improved = false;
+            iteration++;
             
             for (int v = 0; v < vertex_count; v++) {
                 if (mate[v] == -1) {
                     std::vector<int> path = find_augmenting_path(v);
                     if (!path.empty()) {
+                        
                         augment(path);
+                        
+                        int current_matching_size = 0;
+                        for (int m : mate) {
+                            if (m != -1) current_matching_size++;
+                        }
+                        current_matching_size /= 2;
+                        
                         improved = true;
                         break;
                     }
                 }
             }
+            
+            if (!improved) {
+            }
         }
+        
         
         std::vector<std::pair<int, int>> matching;
         std::vector<bool> seen(vertex_count, false);
@@ -320,7 +335,7 @@ bool load_graph_from_file(const std::string& filename, int& vertex_count,
 }
 
 int main(int argc, char* argv[]) {
-    std::cout << "Edmonds' Blossom Algorithm (Simple) - C++ Implementation" << std::endl;
+    std::cout << "Edmonds' Blossom Algorithm (Optimized) - C++ Implementation" << std::endl;
     std::cout << "============================================================" << std::endl;
     std::cout << std::endl;
     
@@ -341,7 +356,7 @@ int main(int argc, char* argv[]) {
         
         auto start = std::chrono::high_resolution_clock::now();
         
-        EdmondsBlossomSimple eb(vertex_count, edges);
+        EdmondsBlossomOptimized eb(vertex_count, edges);
         auto matching = eb.maximum_matching();
         
         auto end = std::chrono::high_resolution_clock::now();

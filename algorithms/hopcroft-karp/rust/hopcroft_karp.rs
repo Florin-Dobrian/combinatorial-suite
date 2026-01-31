@@ -1,58 +1,48 @@
 /*
  * Hopcroft-Karp Algorithm for Maximum Bipartite Matching (Rust Implementation)
  * Time complexity: O(E * sqrt(V))
+ * 
+ * Uses integers for vertices and deterministic data structures.
  */
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::time::Instant;
 
-#[derive(Clone)]
 struct HopcroftKarp {
-    left: HashSet<String>,
-    graph: HashMap<String, Vec<String>>,
-    pair_left: HashMap<String, Option<String>>,
-    pair_right: HashMap<String, Option<String>>,
-    dist: HashMap<String, i32>,
+    left_count: usize,
+    right_count: usize,
+    graph: Vec<Vec<usize>>,  // graph[left_node] = list of right nodes
+    pair_left: Vec<Option<usize>>,   // pair_left[u] = matched right node
+    pair_right: Vec<Option<usize>>,  // pair_right[v] = matched left node
+    dist: Vec<i32>,
 }
 
 impl HopcroftKarp {
-    fn new(
-        left_nodes: &[String],
-        right_nodes: &[String],
-        edges: &[(String, String)],
-    ) -> Self {
-        let left: HashSet<String> = left_nodes.iter().cloned().collect();
-        let right: HashSet<String> = right_nodes.iter().cloned().collect();
-        
-        let mut graph: HashMap<String, Vec<String>> = HashMap::new();
+    fn new(left_count: usize, right_count: usize, edges: &[(usize, usize)]) -> Self {
+        let mut graph = vec![Vec::new(); left_count];
         
         // Build adjacency list
-        for (u, v) in edges {
-            if left.contains(u) && right.contains(v) {
-                graph.entry(u.clone()).or_insert_with(Vec::new).push(v.clone());
+        for &(u, v) in edges {
+            if u < left_count && v < right_count {
+                graph[u].push(v);
             }
         }
         
-        // Initialize pairs
-        let mut pair_left = HashMap::new();
-        let mut pair_right = HashMap::new();
-        
-        for u in &left {
-            pair_left.insert(u.clone(), None);
-        }
-        for v in &right {
-            pair_right.insert(v.clone(), None);
+        // Sort adjacency lists for deterministic iteration
+        for adj in &mut graph {
+            adj.sort_unstable();
         }
         
         HopcroftKarp {
-            left,
+            left_count,
+            right_count,
             graph,
-            pair_left,
-            pair_right,
-            dist: HashMap::new(),
+            pair_left: vec![None; left_count],
+            pair_right: vec![None; right_count],
+            dist: vec![0; left_count + 1],  // +1 for NIL at index left_count
         }
     }
     
@@ -60,78 +50,65 @@ impl HopcroftKarp {
         let mut queue = VecDeque::new();
         
         // Initialize distances and queue with unmatched left nodes
-        for u in &self.left {
-            if self.pair_left.get(u).unwrap().is_none() {
-                self.dist.insert(u.clone(), 0);
-                queue.push_back(u.clone());
+        for u in 0..self.left_count {
+            if self.pair_left[u].is_none() {
+                self.dist[u] = 0;
+                queue.push_back(u);
             } else {
-                self.dist.insert(u.clone(), i32::MAX);
+                self.dist[u] = i32::MAX;
             }
         }
         
-        self.dist.insert(String::new(), i32::MAX);
+        self.dist[self.left_count] = i32::MAX;  // NIL node at index left_count
         
         // BFS
         while let Some(u) = queue.pop_front() {
-            let u_dist = *self.dist.get(&u).unwrap();
-            
-            if u_dist < *self.dist.get("").unwrap() {
-                if let Some(neighbors) = self.graph.get(&u) {
-                    for v in neighbors {
-                        let paired_node = self.pair_right.get(v).unwrap().clone();
-                        
-                        let paired_key = paired_node.clone().unwrap_or_default();
-                        let paired_dist = *self.dist.get(&paired_key).unwrap_or(&i32::MAX);
-                        
-                        if paired_dist == i32::MAX {
-                            self.dist.insert(paired_key.clone(), u_dist + 1);
-                            if paired_node.is_some() {
-                                queue.push_back(paired_key);
-                            }
+            if self.dist[u] < self.dist[self.left_count] {
+                for &v in &self.graph[u] {
+                    let paired_node = self.pair_right[v].unwrap_or(self.left_count);
+                    
+                    if self.dist[paired_node] == i32::MAX {
+                        self.dist[paired_node] = self.dist[u] + 1;
+                        if self.pair_right[v].is_some() {
+                            queue.push_back(self.pair_right[v].unwrap());
                         }
                     }
                 }
             }
         }
         
-        *self.dist.get("").unwrap() != i32::MAX
+        self.dist[self.left_count] != i32::MAX
     }
     
-    fn dfs(&mut self, u: Option<String>) -> bool {
+    fn dfs(&mut self, u: Option<usize>) -> bool {
         if u.is_none() {
             return true;
         }
         
-        let u_str = u.unwrap();
-        let u_dist = *self.dist.get(&u_str).unwrap();
+        let u = u.unwrap();
+        let neighbors = self.graph[u].clone();  // Clone to avoid borrow checker issues
         
-        if let Some(neighbors) = self.graph.get(&u_str).cloned() {
-            for v in neighbors {
-                let paired_node = self.pair_right.get(&v).unwrap().clone();
-                
-                let paired_key = paired_node.clone().unwrap_or_default();
-                let paired_dist = *self.dist.get(&paired_key).unwrap_or(&i32::MAX);
-                
-                if paired_dist == u_dist + 1 {
-                    if self.dfs(paired_node) {
-                        self.pair_right.insert(v.clone(), Some(u_str.clone()));
-                        self.pair_left.insert(u_str.clone(), Some(v));
-                        return true;
-                    }
+        for &v in &neighbors {
+            let paired_node = self.pair_right[v].unwrap_or(self.left_count);
+            
+            if self.dist[paired_node] == self.dist[u] + 1 {
+                if self.dfs(self.pair_right[v]) {
+                    self.pair_right[v] = Some(u);
+                    self.pair_left[u] = Some(v);
+                    return true;
                 }
             }
         }
         
-        self.dist.insert(u_str, i32::MAX);
+        self.dist[u] = i32::MAX;
         false
     }
     
-    fn maximum_matching(&mut self) -> Vec<(String, String)> {
+    fn maximum_matching(&mut self) -> Vec<(usize, usize)> {
         // While there exist augmenting paths
         while self.bfs() {
-            let left_nodes: Vec<String> = self.left.iter().cloned().collect();
-            for u in left_nodes {
-                if self.pair_left.get(&u).unwrap().is_none() {
+            for u in 0..self.left_count {
+                if self.pair_left[u].is_none() {
                     self.dfs(Some(u));
                 }
             }
@@ -139,18 +116,66 @@ impl HopcroftKarp {
         
         // Build the matching vector
         let mut matching = Vec::new();
-        for u in &self.left {
-            if let Some(Some(v)) = self.pair_left.get(u) {
-                matching.push((u.clone(), v.clone()));
+        for u in 0..self.left_count {
+            if let Some(v) = self.pair_left[u] {
+                matching.push((u, v));
             }
         }
         
+        matching.sort_unstable();
         matching
+    }
+    
+    fn validate_matching(&self, matching: &[(usize, usize)]) {
+        let mut left_degree = vec![0; self.left_count];
+        let mut right_degree = vec![0; self.right_count];
+        let mut errors = 0;
+        
+        eprintln!("\n=== Validation Report ===");
+        eprintln!("Matching size (claimed): {}", matching.len());
+        
+        for &(u, v) in matching {
+            // Check if edge exists in original graph
+            if !self.graph[u].contains(&v) {
+                eprintln!("ERROR: Edge ({}, {}) in matching but NOT in original graph!", u, v);
+                errors += 1;
+            }
+            
+            left_degree[u] += 1;
+            right_degree[v] += 1;
+        }
+        
+        for i in 0..self.left_count {
+            if left_degree[i] > 1 {
+                eprintln!("ERROR: Left node {} appears in {} edges (should be at most 1)!", i, left_degree[i]);
+                errors += 1;
+            }
+        }
+        
+        for i in 0..self.right_count {
+            if right_degree[i] > 1 {
+                eprintln!("ERROR: Right node {} appears in {} edges (should be at most 1)!", i, right_degree[i]);
+                errors += 1;
+            }
+        }
+        
+        let unique_left = left_degree.iter().filter(|&&d| d > 0).count();
+        let unique_right = right_degree.iter().filter(|&&d| d > 0).count();
+        
+        eprintln!("Number of edges in matching: {}", matching.len());
+        eprintln!("Left nodes matched: {}", unique_left);
+        eprintln!("Right nodes matched: {}", unique_right);
+        
+        if errors > 0 {
+            eprintln!("VALIDATION FAILED: {} errors found", errors);
+        } else {
+            eprintln!("VALIDATION PASSED: Matching is valid");
+        }
+        eprintln!("=========================\n");
     }
 }
 
-// Load graph from file
-fn load_graph_from_file(filename: &str) -> io::Result<(Vec<String>, Vec<String>, Vec<(String, String)>)> {
+fn load_graph_from_file(filename: &str) -> io::Result<(usize, usize, Vec<(usize, usize)>)> {
     let file = File::open(filename)?;
     let mut lines = BufReader::new(file).lines();
     
@@ -176,9 +201,6 @@ fn load_graph_from_file(filename: &str) -> io::Result<(Vec<String>, Vec<String>,
     
     let (left_count, right_count, edge_count) = (parts[0], parts[1], parts[2]);
     
-    let left: Vec<String> = (0..left_count).map(|i| format!("L{}", i)).collect();
-    let right: Vec<String> = (0..right_count).map(|i| format!("R{}", i)).collect();
-    
     let mut edges = Vec::new();
     for line in lines.take(edge_count) {
         let line = line?;
@@ -197,78 +219,37 @@ fn load_graph_from_file(filename: &str) -> io::Result<(Vec<String>, Vec<String>,
             ));
         }
         
-        edges.push((format!("L{}", nums[0]), format!("R{}", nums[1])));
+        edges.push((nums[0], nums[1]));
     }
     
-    Ok((left, right, edges))
-}
-
-// Generate a large random bipartite graph for benchmarking
-fn generate_large_graph(
-    left_size: usize,
-    right_size: usize,
-    edges_per_left_node: usize,
-) -> Vec<(String, String)> {
-    let mut edges = Vec::new();
-    
-    for i in 0..left_size {
-        for j in 0..edges_per_left_node {
-            let right_idx = (i * edges_per_left_node + j) % right_size;
-            edges.push((
-                format!("L{}", i),
-                format!("R{}", right_idx),
-            ));
-        }
-    }
-    
-    edges
-}
-
-fn run_example(
-    left: &[String],
-    right: &[String],
-    edges: &[(String, String)],
-    description: &str,
-) {
-    println!("{}", description);
-    println!(
-        "Graph: {} left nodes, {} right nodes, {} edges",
-        left.len(),
-        right.len(),
-        edges.len()
-    );
-    
-    let start = Instant::now();
-    let mut hk = HopcroftKarp::new(left, right, edges);
-    let matching = hk.maximum_matching();
-    let duration = start.elapsed();
-    
-    println!("Matching size: {}", matching.len());
-    if matching.len() <= 10 {
-        print!("Matching: ");
-        for (u, v) in &matching {
-            print!("({},{}) ", u, v);
-        }
-        println!();
-    }
-    println!("Execution time: {} ms", duration.as_millis());
-    println!();
+    Ok((left_count, right_count, edges))
 }
 
 fn main() {
-    println!("Rust Hopcroft-Karp Implementation");
-    println!("==================================\n");
+    println!("Hopcroft-Karp Algorithm - Rust Implementation");
+    println!("==============================================\n");
     
     let args: Vec<String> = env::args().collect();
     
-    // Check if a file was provided
     if args.len() > 1 {
         let filename = &args[1];
         println!("Loading graph from: {}", filename);
         
         match load_graph_from_file(filename) {
-            Ok((left, right, edges)) => {
-                run_example(&left, &right, &edges, &format!("File: {}", filename));
+            Ok((left_count, right_count, edges)) => {
+                println!("File: {}", filename);
+                println!("Graph: {} left nodes, {} right nodes, {} edges", 
+                        left_count, right_count, edges.len());
+                
+                let start = Instant::now();
+                let mut hk = HopcroftKarp::new(left_count, right_count, &edges);
+                let matching = hk.maximum_matching();
+                let duration = start.elapsed();
+                
+                hk.validate_matching(&matching);
+                
+                println!("Matching size: {}", matching.len());
+                println!("Execution time: {} ms", duration.as_millis());
             }
             Err(e) => {
                 eprintln!("Error loading file: {}", e);
@@ -276,45 +257,7 @@ fn main() {
             }
         }
     } else {
-        // Run built-in examples
-        println!("Running built-in examples (use: ./hopcroft_karp_rust <filename> to load from file)\n");
-        
-        // Small example
-        let left: Vec<String> = vec!["A", "B", "C", "D"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
-        let right: Vec<String> = vec!["1", "2", "3", "4"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
-        let edges: Vec<(String, String)> = vec![
-            ("A", "1"), ("A", "2"),
-            ("B", "2"), ("B", "3"),
-            ("C", "3"), ("C", "4"),
-            ("D", "4"),
-        ]
-        .into_iter()
-        .map(|(a, b)| (a.to_string(), b.to_string()))
-        .collect();
-        
-        run_example(&left, &right, &edges, "Small example:");
-        
-        // Benchmark with larger graph
-        println!("Benchmarking with larger graph...");
-        let left_size = 1000;
-        let right_size = 1000;
-        let edges_per_node = 10;
-        
-        let large_left: Vec<String> = (0..left_size)
-            .map(|i| format!("L{}", i))
-            .collect();
-        let large_right: Vec<String> = (0..right_size)
-            .map(|i| format!("R{}", i))
-            .collect();
-        
-        let large_edges = generate_large_graph(left_size, right_size, edges_per_node);
-        
-        run_example(&large_left, &large_right, &large_edges, "Large benchmark:");
+        println!("Usage: {} <filename>", args[0]);
+        std::process::exit(1);
     }
 }

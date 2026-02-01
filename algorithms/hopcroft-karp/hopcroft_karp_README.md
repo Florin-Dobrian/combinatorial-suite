@@ -45,24 +45,23 @@ All vertices are integers starting from 0.
 
 ### Python
 ```bash
+# Standard Python
 python3 hopcroft_karp.py <filename>
-```
 
-Or with `uv` (faster, modern Python package manager):
-```bash
+# Or with uv (faster, modern Python)
 uv run hopcroft_karp.py <filename>
 ```
 
 ### C++
 ```bash
-g++ -O3 -std=c++17 hopcroft_karp.cpp -o hopcroft_karp
-./hopcroft_karp <filename>
+g++ -O3 -std=c++17 hopcroft_karp.cpp -o hopcroft_karp_cpp
+./hopcroft_karp_cpp <filename>
 ```
 
 ### Rust
 ```bash
-rustc -O hopcroft_karp.rs -o hopcroft_karp
-./hopcroft_karp <filename>
+rustc -O hopcroft_karp.rs -o hopcroft_karp_rust
+./hopcroft_karp_rust <filename>
 ```
 
 ## Example Output
@@ -89,7 +88,7 @@ Execution time: 7 ms
 
 ## Complexity
 
-- **Time**: O(E√V)
+- **Time**: O(√VE)
 - **Space**: O(V + E)
 
 ## Performance

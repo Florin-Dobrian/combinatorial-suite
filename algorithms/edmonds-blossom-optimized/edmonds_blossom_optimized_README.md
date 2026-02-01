@@ -53,34 +53,36 @@ Same as simple version.
 
 ### Python
 ```bash
+# Standard Python
 python3 edmonds_blossom_optimized.py <filename>
-```
 
-Or with `uv` (faster, modern Python package manager):
-```bash
+# Or with uv (faster, modern Python)
 uv run edmonds_blossom_optimized.py <filename>
 ```
 
 ### C++
 ```bash
-g++ -O3 -std=c++17 edmonds_blossom_optimized.cpp -o edmonds_blossom_optimized
-./edmonds_blossom_optimized <filename>
+g++ -O3 -std=c++17 edmonds_blossom_optimized.cpp -o edmonds_blossom_optimized_cpp
+./edmonds_blossom_optimized_cpp <filename>
 ```
 
 ### Rust
 ```bash
-rustc -O edmonds_blossom_optimized.rs -o edmonds_blossom_optimized
-./edmonds_blossom_optimized <filename>
+rustc -O edmonds_blossom_optimized.rs -o edmonds_blossom_optimized_rust
+./edmonds_blossom_optimized_rust <filename>
 ```
 
 ## Example Output
 
+### Python
 ```
-Edmonds' Blossom Algorithm (Optimized) - C++ Implementation
+$ python3 edmonds_blossom_optimized.py <filename>
+
+Edmonds' Blossom Algorithm (Optimized) - Python Implementation
 ============================================================
 
-Loading graph from: test.txt
-File: test.txt
+Loading graph from: <filename>
+File: <filename>
 Graph: 10000 vertices, 24907 edges
 
 === Validation Report ===
@@ -91,27 +93,73 @@ VALIDATION PASSED: Matching is valid
 =========================
 
 Matching size: 4962
-Execution time: 380 ms
+Execution time: 12615.97 ms
+```
+
+### C++
+```
+$ ./edmonds_blossom_optimized_cpp <filename>
+
+Edmonds' Blossom Algorithm (Optimized) - C++ Implementation
+============================================================
+
+Loading graph from: <filename>
+File: <filename>
+Graph: 10000 vertices, 24907 edges
+
+=== Validation Report ===
+Matching size (claimed): 4962
+Number of edges in matching: 4962
+Number of unique vertices: 9924
+VALIDATION PASSED: Matching is valid
+=========================
+
+Matching size: 4962
+Execution time: 383 ms
+```
+
+### Rust
+```
+$ ./edmonds_blossom_optimized_rust <filename>
+
+Edmonds' Blossom Algorithm (Optimized) - Rust Implementation
+==============================================================
+
+Loading graph from: <filename>
+File: <filename>
+Graph: 10000 vertices, 24907 edges
+
+=== Validation Report ===
+Matching size (claimed): 4962
+Number of edges in matching: 4962
+Number of unique vertices: 9924
+VALIDATION PASSED: Matching is valid
+=========================
+
+Matching size: 4962
+Execution time: 361 ms
 ```
 
 ## Performance Comparison
 
-Test: 10,000 vertices, ~25,000 edges
+Test: 10,000 vertices, 24,907 edges
 
 ### Simple vs Optimized (C++)
 
 | Version | Time | Speedup |
 |---------|------|---------|
-| Simple | ~2-3 sec | 1.0x |
-| Optimized | ~380-400 ms | **5-7× faster** |
+| Simple | ~384 ms | 1.0x |
+| Optimized | ~383 ms | 1.0× (same) |
+
+**Note:** For this sparse graph, both versions have similar performance. The optimized version's advantage shows more on denser graphs.
 
 ### Language Comparison (Optimized)
 
 | Language | Time | Speed |
 |----------|------|-------|
-| Python | ~5-10 sec | 1.0x |
-| C++ | ~380-400 ms | ~15-20x |
-| Rust | ~380-400 ms | ~15-20x |
+| Python | ~12.6 sec | 1.0x |
+| C++ | ~383 ms | ~33x |
+| Rust | ~361 ms | ~35x |
 
 ## When to Use Optimized vs Simple
 

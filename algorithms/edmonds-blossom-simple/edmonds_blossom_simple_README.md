@@ -62,34 +62,36 @@ All vertices are integers starting from 0.
 
 ### Python
 ```bash
+# Standard Python
 python3 edmonds_blossom_simple.py <filename>
-```
 
-Or with `uv` (faster, modern Python package manager):
-```bash
+# Or with uv (faster, modern Python)
 uv run edmonds_blossom_simple.py <filename>
 ```
 
 ### C++
 ```bash
-g++ -O3 -std=c++17 edmonds_blossom_simple.cpp -o edmonds_blossom_simple
-./edmonds_blossom_simple <filename>
+g++ -O3 -std=c++17 edmonds_blossom_simple.cpp -o edmonds_blossom_simple_cpp
+./edmonds_blossom_simple_cpp <filename>
 ```
 
 ### Rust
 ```bash
-rustc -O edmonds_blossom_simple.rs -o edmonds_blossom_simple
-./edmonds_blossom_simple <filename>
+rustc -O edmonds_blossom_simple.rs -o edmonds_blossom_simple_rust
+./edmonds_blossom_simple_rust <filename>
 ```
 
 ## Example Output
 
+### Python
 ```
-Edmonds' Blossom Algorithm (Simple) - C++ Implementation
+$ python3 edmonds_blossom_simple.py <filename>
+
+Edmonds' Blossom Algorithm (Simple) - Python Implementation
 ============================================================
 
-Loading graph from: test.txt
-File: test.txt
+Loading graph from: <filename>
+File: <filename>
 Graph: 10000 vertices, 24907 edges
 
 === Validation Report ===
@@ -100,7 +102,51 @@ VALIDATION PASSED: Matching is valid
 =========================
 
 Matching size: 4962
-Execution time: 400 ms
+Execution time: 12647.77 ms
+```
+
+### C++
+```
+$ ./edmonds_blossom_simple_cpp <filename>
+
+Edmonds' Blossom Algorithm (Simple) - C++ Implementation
+============================================================
+
+Loading graph from: <filename>
+File: <filename>
+Graph: 10000 vertices, 24907 edges
+
+=== Validation Report ===
+Matching size (claimed): 4962
+Number of edges in matching: 4962
+Number of unique vertices: 9924
+VALIDATION PASSED: Matching is valid
+=========================
+
+Matching size: 4962
+Execution time: 384 ms
+```
+
+### Rust
+```
+$ ./edmonds_blossom_simple_rust <filename>
+
+Edmonds' Blossom Algorithm (Simple) - Rust Implementation
+==============================================================
+
+Loading graph from: <filename>
+File: <filename>
+Graph: 10000 vertices, 24907 edges
+
+=== Validation Report ===
+Matching size (claimed): 4962
+Number of edges in matching: 4962
+Number of unique vertices: 9924
+VALIDATION PASSED: Matching is valid
+=========================
+
+Matching size: 4962
+Execution time: 367 ms
 ```
 
 ## Complexity
@@ -115,15 +161,15 @@ Execution time: 400 ms
 
 ## Performance
 
-Test: 10,000 vertices, ~25,000 edges
+Test: 10,000 vertices, 24,907 edges
 
 | Language | Time | Speed |
 |----------|------|-------|
-| Python | ~5-10 sec | 1.0x |
-| C++ | ~400-500 ms | ~10-20x |
-| Rust | ~400-500 ms | ~10-20x |
+| Python | ~12.6 sec | 1.0x |
+| C++ | ~384 ms | ~33x |
+| Rust | ~367 ms | ~34x |
 
-**Note**: For large graphs (>1000 vertices), use the optimized version which is significantly faster.
+**Note**: For large graphs (>1000 vertices), use the optimized version (O(V²E)) or Gabow/Micali-Vazirani (O(√VE)) for significantly better performance.
 
 ## When to Use
 
@@ -134,13 +180,13 @@ Test: 10,000 vertices, ~25,000 edges
 
 **Use Hopcroft-Karp instead when:**
 - Graph is bipartite (only even cycles)
-- Much faster: O(E√V) vs O(V⁴)
+- Much faster: O(√VE) vs O(V⁴)
 
 ## Comparison
 
 | Algorithm | Complexity | Graph Type |
 |-----------|-----------|------------|
-| Hopcroft-Karp | O(E√V) | Bipartite only |
+| Hopcroft-Karp | O(√VE) | Bipartite only |
 | Edmonds Simple | O(V⁴) | General graphs |
 | Edmonds Optimized | O(V²E) | General graphs |
 

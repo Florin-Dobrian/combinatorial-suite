@@ -1,296 +1,246 @@
 """
-Gabow's Algorithm for Maximum Cardinality Matching (Simple Version)
-Time complexity: O(V * E)
+Gabow's Algorithm (Simple) - O(VE) Maximum Matching
 
-Python implementation - fully deterministic
-- Integer vertices only (0 to n-1)
-- No dict or set (uses lists only for determinism)
-- Sorted adjacency lists
+Python implementation — fully deterministic, no hash containers.
 """
 
 import sys
 import time
-from collections import deque
+from bisect import bisect_left
+
+NIL = -1
+
 
 class GabowSimple:
-    def __init__(self, vertex_count, edges):
-        self.vertex_count = vertex_count
-        self.graph = [[] for _ in range(vertex_count)]
-        self.mate = [None] * vertex_count
-        self.base = list(range(vertex_count))
-        self.parent = [None] * vertex_count
-        self.blossom = [False] * vertex_count
-        self.visited = [False] * vertex_count
-        
-        # Build adjacency list
+    def __init__(self, n, edges):
+        self.n = n
+        self.graph = [[] for _ in range(n)]
         for u, v in edges:
-            if u < vertex_count and v < vertex_count and u != v:
+            if u < n and v < n and u != v:
                 self.graph[u].append(v)
                 self.graph[v].append(u)
-        
-        # Sort for determinism
         for adj in self.graph:
             adj.sort()
-    
+
+        self.mate = [NIL] * n
+        self.base = list(range(n))
+        self.parent = [NIL] * n
+        self.blossom = [False] * n
+        self.visited = [False] * n
+
     def find_base(self, v):
-        """Find base of blossom containing v (with path compression)"""
         if self.base[v] != v:
             self.base[v] = self.find_base(self.base[v])
         return self.base[v]
-    
+
     def find_lca(self, u, v):
-        """Find lowest common ancestor in alternating tree"""
-        path = [False] * self.vertex_count
-        
-        # Mark path from u to root
-        safety = 0
-        while safety < self.vertex_count:
+        path = [False] * self.n
+
+        for _ in range(self.n):
             u = self.find_base(u)
             path[u] = True
-            if self.mate[u] is None:
+            if self.mate[u] == NIL:
                 break
-            mate_u = self.mate[u]
-            if self.parent[mate_u] is None:
+            mu = self.mate[u]
+            if self.parent[mu] == NIL:
                 break
-            u = self.parent[mate_u]
-            safety += 1
-        
-        # Find first common ancestor from v
-        safety = 0
-        while safety < self.vertex_count:
+            u = self.parent[mu]
+
+        for _ in range(self.n):
             v = self.find_base(v)
             if path[v]:
                 return v
-            if self.mate[v] is None:
+            if self.mate[v] == NIL:
                 break
-            mate_v = self.mate[v]
-            if self.parent[mate_v] is None:
+            mv = self.mate[v]
+            if self.parent[mv] == NIL:
                 break
-            v = self.parent[mate_v]
-            safety += 1
-        
-        return None
-    
+            v = self.parent[mv]
+
+        return NIL
+
     def mark_blossom(self, u, lca, queue):
-        """Mark vertices in blossom"""
-        safety = 0
-        while self.find_base(u) != lca and safety < self.vertex_count:
+        for _ in range(self.n):
+            if self.find_base(u) == lca:
+                break
             bv = self.find_base(u)
-            mate_u = self.mate[u]
-            bw = self.find_base(mate_u)
-            
+            mu = self.mate[u]
+            bw = self.find_base(mu)
+
             self.blossom[bv] = True
             self.blossom[bw] = True
-            
+
             if not self.visited[bw]:
                 self.visited[bw] = True
                 queue.append(bw)
-            
-            if self.parent[mate_u] is None:
+
+            if self.parent[mu] == NIL:
                 break
-            u = self.parent[mate_u]
-            safety += 1
-    
+            u = self.parent[mu]
+
     def contract_blossom(self, u, v, queue):
-        """Contract blossom"""
         lca = self.find_lca(u, v)
-        if lca is None:
+        if lca == NIL:
             return
-        
-        self.blossom = [False] * self.vertex_count
+
+        self.blossom = [False] * self.n
         self.mark_blossom(u, lca, queue)
         self.mark_blossom(v, lca, queue)
-        
-        # Update bases
-        for i in range(self.vertex_count):
-            base_i = self.find_base(i)
-            if self.blossom[base_i]:
+
+        for i in range(self.n):
+            bi = self.find_base(i)
+            if self.blossom[bi]:
                 self.base[i] = lca
                 if not self.visited[i]:
                     self.visited[i] = True
                     queue.append(i)
-    
+
     def find_augmenting_path(self, start):
-        """Find augmenting path from start using BFS"""
-        # Initialize for this search
-        self.base = list(range(self.vertex_count))
-        self.parent = [None] * self.vertex_count
-        self.visited = [False] * self.vertex_count
-        
-        queue = deque([start])
+        for i in range(self.n):
+            self.base[i] = i
+            self.parent[i] = NIL
+        self.visited = [False] * self.n
+
+        queue = [start]
         self.visited[start] = True
-        
-        iterations = 0
-        while queue and iterations < self.vertex_count * self.vertex_count:
-            iterations += 1
-            u = queue.popleft()
-            
+        qi = 0
+
+        while qi < len(queue):
+            u = queue[qi]
+            qi += 1
+
             for v in self.graph[u]:
-                base_u = self.find_base(u)
-                base_v = self.find_base(v)
-                
-                if base_u == base_v:
-                    continue  # Same blossom
-                
-                if self.mate[v] is None:
-                    # Found augmenting path!
+                bu = self.find_base(u)
+                bv = self.find_base(v)
+                if bu == bv:
+                    continue
+
+                if self.mate[v] == NIL:
                     self.parent[v] = u
                     return True
-                
-                if not self.visited[base_v]:
-                    # v is matched, extend alternating tree
+
+                if not self.visited[bv]:
                     self.parent[v] = u
-                    self.visited[base_v] = True
-                    
+                    self.visited[bv] = True
                     w = self.mate[v]
-                    base_w = self.find_base(w)
-                    self.visited[base_w] = True
+                    bw = self.find_base(w)
+                    self.visited[bw] = True
                     queue.append(w)
                 else:
-                    # Both in tree - potential blossom
-                    root_u = base_u
-                    safety = 0
-                    while self.mate[root_u] is not None and safety < self.vertex_count:
-                        mate_root = self.mate[root_u]
-                        if self.parent[mate_root] is None:
+                    # check if same tree → blossom
+                    ru = bu
+                    for _ in range(self.n):
+                        if self.mate[ru] == NIL:
                             break
-                        root_u = self.find_base(self.parent[mate_root])
-                        safety += 1
-                    
-                    root_v = base_v
-                    safety = 0
-                    while self.mate[root_v] is not None and safety < self.vertex_count:
-                        mate_root = self.mate[root_v]
-                        if self.parent[mate_root] is None:
+                        mru = self.mate[ru]
+                        if self.parent[mru] == NIL:
                             break
-                        root_v = self.find_base(self.parent[mate_root])
-                        safety += 1
-                    
-                    if root_u == root_v:
-                        # Same tree - this is a blossom!
+                        ru = self.find_base(self.parent[mru])
+
+                    rv = bv
+                    for _ in range(self.n):
+                        if self.mate[rv] == NIL:
+                            break
+                        mrv = self.mate[rv]
+                        if self.parent[mrv] == NIL:
+                            break
+                        rv = self.find_base(self.parent[mrv])
+
+                    if ru == rv:
                         self.contract_blossom(u, v, queue)
-        
-        if iterations >= self.vertex_count * self.vertex_count:
-            print("Warning: BFS timeout", file=sys.stderr)
-        
         return False
-    
+
     def augment_path(self, v):
-        """Augment along path"""
-        while self.parent[v] is not None:
+        while self.parent[v] != NIL:
             pv = self.parent[v]
             ppv = self.mate[pv]
             self.mate[v] = pv
             self.mate[pv] = v
-            if ppv is None:
+            if ppv == NIL:
                 break
             v = ppv
-    
+
     def maximum_matching(self):
-        """Find maximum matching"""
         found = True
-        iterations = 0
-        
         while found:
             found = False
-            iterations += 1
-            
-            for v in range(self.vertex_count):
-                if self.mate[v] is None:
+            for v in range(self.n):
+                if self.mate[v] == NIL:
                     if self.find_augmenting_path(v):
-                        # Find the endpoint of the augmenting path
-                        for u in range(self.vertex_count):
-                            if self.mate[u] is None and self.parent[u] is not None:
+                        for u in range(self.n):
+                            if self.mate[u] == NIL and self.parent[u] != NIL:
                                 self.augment_path(u)
                                 found = True
                                 break
-            
-            if iterations > self.vertex_count:
-                print("Warning: Too many iterations", file=sys.stderr)
-                break
-        
-        # Build result
+
         matching = []
-        seen = [False] * self.vertex_count
-        
-        for u in range(self.vertex_count):
-            if self.mate[u] is not None and not seen[u]:
-                v = self.mate[u]
-                matching.append((min(u, v), max(u, v)))
-                seen[u] = True
-                seen[v] = True
-        
+        for u in range(self.n):
+            if self.mate[u] != NIL and self.mate[u] > u:
+                matching.append((u, self.mate[u]))
         matching.sort()
         return matching
-    
-    def validate_matching(self, matching):
-        """Validate matching"""
-        degree = [0] * self.vertex_count
-        errors = 0
-        
-        print("\n=== Validation Report ===", file=sys.stderr)
-        print(f"Matching size: {len(matching)}", file=sys.stderr)
-        
-        for u, v in matching:
-            if v not in self.graph[u]:
-                print(f"ERROR: Edge ({u}, {v}) not in graph!", file=sys.stderr)
-                errors += 1
-            degree[u] += 1
-            degree[v] += 1
-        
-        for i in range(self.vertex_count):
-            if degree[i] > 1:
-                print(f"ERROR: Vertex {i} in {degree[i]} edges!", file=sys.stderr)
-                errors += 1
-        
-        matched = sum(1 for d in degree if d > 0)
-        
-        print(f"Matched vertices: {matched}", file=sys.stderr)
-        print("VALIDATION PASSED" if errors == 0 else "VALIDATION FAILED", file=sys.stderr)
-        print("=========================\n", file=sys.stderr)
+
+
+def validate_matching(n, graph, matching):
+    deg = [0] * n
+    errors = 0
+
+    for u, v in matching:
+        pos = bisect_left(graph[u], v)
+        if pos >= len(graph[u]) or graph[u][pos] != v:
+            print(f"ERROR: Edge ({u}, {v}) not in graph!", file=sys.stderr)
+            errors += 1
+        deg[u] += 1
+        deg[v] += 1
+
+    for i in range(n):
+        if deg[i] > 1:
+            print(f"ERROR: Vertex {i} in {deg[i]} edges!", file=sys.stderr)
+            errors += 1
+
+    matched = sum(1 for d in deg if d > 0)
+
+    print()
+    print("=== Validation Report ===")
+    print(f"Matching size: {len(matching)}")
+    print(f"Matched vertices: {matched}")
+    print("VALIDATION FAILED" if errors > 0 else "VALIDATION PASSED")
+    print("=========================")
+    print()
 
 
 def load_graph(filename):
-    """Load graph from file"""
     with open(filename, 'r') as f:
-        lines = f.readlines()
-    
-    n, m = map(int, lines[0].split())
-    edges = []
-    
-    for i in range(1, m + 1):
-        u, v = map(int, lines[i].split())
-        edges.append((u, v))
-    
+        n, m = map(int, f.readline().split())
+        edges = []
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 2:
+                edges.append((int(parts[0]), int(parts[1])))
     return n, edges
 
 
 def main():
-    print("Gabow's Algorithm (Simple Version) - Python Implementation")
-    print("===========================================================\n")
-    
+    print("Gabow's Algorithm (Simple) - Python Implementation")
+    print("====================================================")
+    print()
+
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <filename>")
+        print(f"Usage: python {sys.argv[0]} <filename>")
         sys.exit(1)
-    
-    try:
-        n, edges = load_graph(sys.argv[1])
-        
-        print(f"Graph: {n} vertices, {len(edges)} edges")
-        
-        start_time = time.time()
-        gabow = GabowSimple(n, edges)
-        matching = gabow.maximum_matching()
-        elapsed = time.time() - start_time
-        
-        gabow.validate_matching(matching)
-        
-        print(f"Matching size: {len(matching)}")
-        print(f"Time: {elapsed * 1000:.0f} ms")
-        
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+
+    n, edges = load_graph(sys.argv[1])
+    print(f"Graph: {n} vertices, {len(edges)} edges")
+
+    t0 = time.time()
+    gabow = GabowSimple(n, edges)
+    matching = gabow.maximum_matching()
+    t1 = time.time()
+
+    validate_matching(n, gabow.graph, matching)
+
+    print(f"Matching size: {len(matching)}")
+    print(f"Time: {int((t1 - t0) * 1000)} ms")
 
 
 if __name__ == "__main__":

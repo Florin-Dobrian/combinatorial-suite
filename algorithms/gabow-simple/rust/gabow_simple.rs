@@ -1,247 +1,194 @@
 /*
- * Gabow's Algorithm for Maximum Cardinality Matching (Simple Version)
- * Time complexity: O(V * E)
- * 
- * Rust implementation - fully deterministic
- * - Integer vertices only (0 to n-1)
- * - No HashSet or HashMap (fully deterministic)
- * - Sorted adjacency lists
+ * Gabow's Algorithm (Simple) - O(VE) Maximum Matching
+ *
+ * Rust implementation — fully deterministic, no hash containers.
  */
 
-use std::collections::VecDeque;
 use std::env;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{BufRead, BufReader};
 use std::time::Instant;
 
+const NIL: i32 = -1;
+
 struct GabowSimple {
-    vertex_count: usize,
+    n: usize,
     graph: Vec<Vec<usize>>,
-    mate: Vec<Option<usize>>,
+    mate: Vec<i32>,
     base: Vec<usize>,
-    parent: Vec<Option<usize>>,
+    parent: Vec<i32>,
     blossom: Vec<bool>,
     visited: Vec<bool>,
 }
 
 impl GabowSimple {
-    fn new(vertex_count: usize, edges: &[(usize, usize)]) -> Self {
-        let mut graph = vec![Vec::new(); vertex_count];
-        
+    fn new(n: usize, edges: &[(usize, usize)]) -> Self {
+        let mut graph = vec![Vec::new(); n];
         for &(u, v) in edges {
-            if u < vertex_count && v < vertex_count && u != v {
+            if u < n && v < n && u != v {
                 graph[u].push(v);
                 graph[v].push(u);
             }
         }
-        
-        for adj in &mut graph {
-            adj.sort_unstable();
-        }
-        
+        for adj in &mut graph { adj.sort_unstable(); }
+
         GabowSimple {
-            vertex_count,
+            n,
             graph,
-            mate: vec![None; vertex_count],
-            base: vec![0; vertex_count],
-            parent: vec![None; vertex_count],
-            blossom: vec![false; vertex_count],
-            visited: vec![false; vertex_count],
+            mate: vec![NIL; n],
+            base: vec![0; n],
+            parent: vec![NIL; n],
+            blossom: vec![false; n],
+            visited: vec![false; n],
         }
     }
-    
+
     fn find_base(&mut self, v: usize) -> usize {
         if self.base[v] != v {
             self.base[v] = self.find_base(self.base[v]);
         }
         self.base[v]
     }
-    
+
     fn find_lca(&mut self, mut u: usize, mut v: usize) -> Option<usize> {
-        let mut path = vec![false; self.vertex_count];
-        
-        let mut safety = 0;
-        loop {
-            if safety >= self.vertex_count {
-                break;
-            }
+        let mut path = vec![false; self.n];
+
+        for _ in 0..self.n {
             u = self.find_base(u);
             path[u] = true;
-            if self.mate[u].is_none() {
-                break;
-            }
-            let mate_u = self.mate[u].unwrap();
-            if self.parent[mate_u].is_none() {
-                break;
-            }
-            u = self.parent[mate_u].unwrap();
-            safety += 1;
+            if self.mate[u] == NIL { break; }
+            let mu = self.mate[u] as usize;
+            if self.parent[mu] == NIL { break; }
+            u = self.parent[mu] as usize;
         }
-        
-        safety = 0;
-        loop {
-            if safety >= self.vertex_count {
-                break;
-            }
+
+        for _ in 0..self.n {
             v = self.find_base(v);
-            if path[v] {
-                return Some(v);
-            }
-            if self.mate[v].is_none() {
-                break;
-            }
-            let mate_v = self.mate[v].unwrap();
-            if self.parent[mate_v].is_none() {
-                break;
-            }
-            v = self.parent[mate_v].unwrap();
-            safety += 1;
+            if path[v] { return Some(v); }
+            if self.mate[v] == NIL { break; }
+            let mv = self.mate[v] as usize;
+            if self.parent[mv] == NIL { break; }
+            v = self.parent[mv] as usize;
         }
-        
+
         None
     }
-    
-    fn mark_blossom(&mut self, mut u: usize, lca: usize, queue: &mut VecDeque<usize>) {
-        let mut safety = 0;
-        while self.find_base(u) != lca && safety < self.vertex_count {
+
+    fn mark_blossom(&mut self, mut u: usize, lca: usize, queue: &mut Vec<usize>, qi: &mut usize) {
+        let _ = qi; /* queue grows, qi stays valid */
+        for _ in 0..self.n {
+            if self.find_base(u) == lca { break; }
             let bv = self.find_base(u);
-            let mate_u = self.mate[u].unwrap();
-            let bw = self.find_base(mate_u);
-            
+            let mu = self.mate[u] as usize;
+            let bw = self.find_base(mu);
+
             self.blossom[bv] = true;
             self.blossom[bw] = true;
-            
+
             if !self.visited[bw] {
                 self.visited[bw] = true;
-                queue.push_back(bw);
+                queue.push(bw);
             }
-            
-            if self.parent[mate_u].is_none() {
-                break;
-            }
-            u = self.parent[mate_u].unwrap();
-            safety += 1;
+
+            if self.parent[mu] == NIL { break; }
+            u = self.parent[mu] as usize;
         }
     }
-    
-    fn contract_blossom(&mut self, u: usize, v: usize, queue: &mut VecDeque<usize>) {
+
+    fn contract_blossom(&mut self, u: usize, v: usize, queue: &mut Vec<usize>, qi: &mut usize) {
         if let Some(lca) = self.find_lca(u, v) {
-            self.blossom = vec![false; self.vertex_count];
-            self.mark_blossom(u, lca, queue);
-            self.mark_blossom(v, lca, queue);
-            
-            for i in 0..self.vertex_count {
-                let base_i = self.find_base(i);
-                if self.blossom[base_i] {
+            self.blossom = vec![false; self.n];
+            self.mark_blossom(u, lca, queue, qi);
+            self.mark_blossom(v, lca, queue, qi);
+
+            for i in 0..self.n {
+                let bi = self.find_base(i);
+                if self.blossom[bi] {
                     self.base[i] = lca;
                     if !self.visited[i] {
                         self.visited[i] = true;
-                        queue.push_back(i);
+                        queue.push(i);
                     }
                 }
             }
         }
     }
-    
+
     fn find_augmenting_path(&mut self, start: usize) -> bool {
-        for i in 0..self.vertex_count {
-            self.base[i] = i;
-            self.parent[i] = None;
-        }
-        self.visited = vec![false; self.vertex_count];
-        
-        let mut queue = VecDeque::new();
-        queue.push_back(start);
+        for i in 0..self.n { self.base[i] = i; self.parent[i] = NIL; }
+        self.visited = vec![false; self.n];
+
+        let mut queue = vec![start];
         self.visited[start] = true;
-        
-        let mut iterations = 0;
-        while let Some(u) = queue.pop_front() {
-            iterations += 1;
-            if iterations > self.vertex_count * self.vertex_count {
-                eprintln!("Warning: BFS timeout");
-                break;
-            }
-            
-            for &v in &self.graph[u].clone() {
-                let base_u = self.find_base(u);
-                let base_v = self.find_base(v);
-                
-                if base_u == base_v {
-                    continue;
-                }
-                
-                if self.mate[v].is_none() {
-                    self.parent[v] = Some(u);
+        let mut qi = 0;
+
+        while qi < queue.len() {
+            let u = queue[qi];
+            qi += 1;
+
+            let neighbors = self.graph[u].clone();
+            for &v in &neighbors {
+                let bu = self.find_base(u);
+                let bv = self.find_base(v);
+                if bu == bv { continue; }
+
+                if self.mate[v] == NIL {
+                    self.parent[v] = u as i32;
                     return true;
                 }
-                
-                if !self.visited[base_v] {
-                    self.parent[v] = Some(u);
-                    self.visited[base_v] = true;
-                    
-                    let w = self.mate[v].unwrap();
-                    let base_w = self.find_base(w);
-                    self.visited[base_w] = true;
-                    queue.push_back(w);
+
+                if !self.visited[bv] {
+                    self.parent[v] = u as i32;
+                    self.visited[bv] = true;
+                    let w = self.mate[v] as usize;
+                    let bw = self.find_base(w);
+                    self.visited[bw] = true;
+                    queue.push(w);
                 } else {
-                    let mut root_u = base_u;
-                    let mut safety = 0;
-                    while self.mate[root_u].is_some() && safety < self.vertex_count {
-                        let mate_root = self.mate[root_u].unwrap();
-                        if self.parent[mate_root].is_none() {
-                            break;
-                        }
-                        root_u = self.find_base(self.parent[mate_root].unwrap());
-                        safety += 1;
+                    /* check if same tree → blossom */
+                    let mut ru = bu;
+                    for _ in 0..self.n {
+                        if self.mate[ru] == NIL { break; }
+                        let mru = self.mate[ru] as usize;
+                        if self.parent[mru] == NIL { break; }
+                        ru = self.find_base(self.parent[mru] as usize);
                     }
-                    
-                    let mut root_v = base_v;
-                    safety = 0;
-                    while self.mate[root_v].is_some() && safety < self.vertex_count {
-                        let mate_root = self.mate[root_v].unwrap();
-                        if self.parent[mate_root].is_none() {
-                            break;
-                        }
-                        root_v = self.find_base(self.parent[mate_root].unwrap());
-                        safety += 1;
+                    let mut rv = bv;
+                    for _ in 0..self.n {
+                        if self.mate[rv] == NIL { break; }
+                        let mrv = self.mate[rv] as usize;
+                        if self.parent[mrv] == NIL { break; }
+                        rv = self.find_base(self.parent[mrv] as usize);
                     }
-                    
-                    if root_u == root_v {
-                        self.contract_blossom(u, v, &mut queue);
+                    if ru == rv {
+                        self.contract_blossom(u, v, &mut queue, &mut qi);
                     }
                 }
             }
         }
-        
         false
     }
-    
+
     fn augment_path(&mut self, mut v: usize) {
-        while let Some(pv) = self.parent[v] {
+        while self.parent[v] != NIL {
+            let pv = self.parent[v] as usize;
             let ppv = self.mate[pv];
-            self.mate[v] = Some(pv);
-            self.mate[pv] = Some(v);
-            if let Some(ppv_val) = ppv {
-                v = ppv_val;
-            } else {
-                break;
-            }
+            self.mate[v] = pv as i32;
+            self.mate[pv] = v as i32;
+            if ppv == NIL { break; }
+            v = ppv as usize;
         }
     }
-    
+
     fn maximum_matching(&mut self) -> Vec<(usize, usize)> {
         let mut found = true;
-        let mut iterations = 0;
-        
         while found {
             found = false;
-            iterations += 1;
-            
-            for v in 0..self.vertex_count {
-                if self.mate[v].is_none() {
+            for v in 0..self.n {
+                if self.mate[v] == NIL {
                     if self.find_augmenting_path(v) {
-                        for u in 0..self.vertex_count {
-                            if self.mate[u].is_none() && self.parent[u].is_some() {
+                        for u in 0..self.n {
+                            if self.mate[u] == NIL && self.parent[u] != NIL {
                                 self.augment_path(u);
                                 found = true;
                                 break;
@@ -250,115 +197,87 @@ impl GabowSimple {
                     }
                 }
             }
-            
-            if iterations > self.vertex_count {
-                eprintln!("Warning: Too many iterations");
-                break;
-            }
         }
-        
+
         let mut matching = Vec::new();
-        let mut seen = vec![false; self.vertex_count];
-        
-        for u in 0..self.vertex_count {
-            if let Some(v) = self.mate[u] {
-                if !seen[u] {
-                    matching.push((u.min(v), u.max(v)));
-                    seen[u] = true;
-                    seen[v] = true;
-                }
+        for u in 0..self.n {
+            if self.mate[u] != NIL && (self.mate[u] as usize) > u {
+                matching.push((u, self.mate[u] as usize));
             }
         }
-        
         matching.sort_unstable();
         matching
     }
-    
-    fn validate_matching(&self, matching: &[(usize, usize)]) {
-        let mut degree = vec![0; self.vertex_count];
-        let mut errors = 0;
-        
-        eprintln!("\n=== Validation Report ===");
-        eprintln!("Matching size: {}", matching.len());
-        
-        for &(u, v) in matching {
-            if !self.graph[u].contains(&v) {
-                eprintln!("ERROR: Edge ({}, {}) not in graph!", u, v);
-                errors += 1;
-            }
-            degree[u] += 1;
-            degree[v] += 1;
-        }
-        
-        for i in 0..self.vertex_count {
-            if degree[i] > 1 {
-                eprintln!("ERROR: Vertex {} in {} edges!", i, degree[i]);
-                errors += 1;
-            }
-        }
-        
-        let matched = degree.iter().filter(|&&d| d > 0).count();
-        
-        eprintln!("Matched vertices: {}", matched);
-        eprintln!("{}", if errors > 0 { "VALIDATION FAILED" } else { "VALIDATION PASSED" });
-        eprintln!("=========================\n");
-    }
 }
 
-fn load_graph(filename: &str) -> io::Result<(usize, Vec<(usize, usize)>)> {
-    let file = File::open(filename)?;
-    let mut lines = BufReader::new(file).lines();
-    
-    let first = lines.next().ok_or(io::Error::new(io::ErrorKind::InvalidData, "Empty file"))??;
-    let parts: Vec<usize> = first.split_whitespace()
-        .map(|s| s.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Parse error")))
-        .collect::<Result<Vec<_>, _>>()?;
-    
-    if parts.len() != 2 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Need 2 numbers"));
-    }
-    
-    let (n, m) = (parts[0], parts[1]);
-    let mut edges = Vec::new();
-    
-    for line in lines.take(m) {
-        let line = line?;
-        let nums: Vec<usize> = line.split_whitespace()
-            .map(|s| s.parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Parse error")))
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        if nums.len() != 2 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Need 2 numbers per edge"));
+fn validate_matching(n: usize, graph: &[Vec<usize>], matching: &[(usize, usize)]) {
+    let mut deg = vec![0i32; n];
+    let mut errors = 0;
+
+    for &(u, v) in matching {
+        if !graph[u].binary_search(&v).is_ok() {
+            eprintln!("ERROR: Edge ({}, {}) not in graph!", u, v);
+            errors += 1;
         }
-        
-        edges.push((nums[0], nums[1]));
+        deg[u] += 1;
+        deg[v] += 1;
     }
-    
+    for i in 0..n {
+        if deg[i] > 1 { eprintln!("ERROR: Vertex {} in {} edges!", i, deg[i]); errors += 1; }
+    }
+    let matched = deg.iter().filter(|&&d| d > 0).count();
+
+    println!("\n=== Validation Report ===");
+    println!("Matching size: {}", matching.len());
+    println!("Matched vertices: {}", matched);
+    println!("{}", if errors > 0 { "VALIDATION FAILED" } else { "VALIDATION PASSED" });
+    println!("=========================\n");
+}
+
+fn load_graph(filename: &str) -> Result<(usize, Vec<(usize, usize)>), Box<dyn std::error::Error>> {
+    let file = File::open(filename)?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+
+    let first = lines.next().ok_or("Empty file")??;
+    let parts: Vec<&str> = first.split_whitespace().collect();
+    let n: usize = parts[0].parse()?;
+    let m: usize = parts[1].parse()?;
+
+    let mut edges = Vec::with_capacity(m);
+    for line in lines {
+        let line = line?;
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let u: usize = parts[0].parse()?;
+            let v: usize = parts[1].parse()?;
+            edges.push((u, v));
+        }
+    }
     Ok((n, edges))
 }
 
 fn main() {
-    println!("Gabow's Algorithm (Simple Version) - Rust Implementation");
-    println!("=========================================================\n");
-    
+    println!("Gabow's Algorithm (Simple) - Rust Implementation");
+    println!("==================================================\n");
+
     let args: Vec<String> = env::args().collect();
-    
     if args.len() < 2 {
-        println!("Usage: {} <filename>", args[0]);
+        eprintln!("Usage: {} <filename>", args[0]);
         std::process::exit(1);
     }
-    
+
     match load_graph(&args[1]) {
         Ok((n, edges)) => {
             println!("Graph: {} vertices, {} edges", n, edges.len());
-            
+
             let start = Instant::now();
             let mut gabow = GabowSimple::new(n, &edges);
             let matching = gabow.maximum_matching();
             let duration = start.elapsed();
-            
-            gabow.validate_matching(&matching);
-            
+
+            validate_matching(n, &gabow.graph, &matching);
+
             println!("Matching size: {}", matching.len());
             println!("Time: {} ms", duration.as_millis());
         }

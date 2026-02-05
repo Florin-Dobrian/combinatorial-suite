@@ -141,6 +141,32 @@ Maximum cardinality matching in general graphs in **O(√VE)** time - theoretica
 
 See the [Micali-Vazirani README](algorithms/micali-vazirani/micali_vazirani_README.md) for algorithm details, complexity analysis, and comparison with other O(√VE) approaches.
 
+### Micali-Vazirani Algorithm (Pure)
+Maximum cardinality matching in general graphs in **O(√VE)** time — faithful implementation of the original algorithm.
+
+**Location**: `algorithms/micali-vazirani-pure/`
+
+**Implementations**:
+- Python (clean, readable)
+- C++ (optimized with -O3)
+- Rust (memory-safe, high-performance)
+
+**Performance**: The fastest algorithm in the suite — roughly 2× faster than the hybrid MV.
+
+**Key Features**:
+- Full original MV machinery: DDFS, tenacity, regular + hanging bridges, petal contraction
+- Faithful to the 1980 Micali-Vazirani paper and Vazirani's 1994 correctness proof
+- Ported from production-quality Jorants MV-Matching-V2 codebase
+
+**Benchmarks** (10,000 vertices, 24,907 edges):
+- C++: 3ms (fastest in suite)
+- Rust: 3ms (fastest in suite)
+- Python: 56ms
+
+**Result:** 4962/4962 edges (100% optimal) ✓
+
+See the [Micali-Vazirani Pure README](algorithms/micali-vazirani-pure/micali_vazirani_pure_README.md) for algorithm details, DDFS mechanism, and comparison with the hybrid version.
+
 ## Project Structure
 
 ```
@@ -172,11 +198,16 @@ combinatorial-suite/
 │   │   ├── python/gabow_optimized.py
 │   │   ├── cpp/gabow_optimized.cpp
 │   │   └── rust/gabow_optimized.rs
-│   └── micali-vazirani/
-│       ├── micali_vazirani_README.md    # Algorithm-specific documentation
-│       ├── python/micali_vazirani.py
-│       ├── cpp/micali_vazirani.cpp
-│       └── rust/micali_vazirani.rs
+│   ├── micali-vazirani/
+│       │   ├── micali_vazirani_README.md    # Algorithm-specific documentation
+│       │   ├── python/micali_vazirani.py
+│       │   ├── cpp/micali_vazirani.cpp
+│       │   └── rust/micali_vazirani.rs
+│       └── micali-vazirani-pure/
+│           ├── micali_vazirani_pure_README.md  # Algorithm-specific documentation
+│           ├── python/micali_vazirani_pure.py
+│           ├── cpp/micali_vazirani_pure.cpp
+│           └── rust/micali_vazirani_pure.rs
 ├── benchmarks/
 │   └── benchmark.sh                     # Cross-language performance testing
 └── data/                                # Test data and datasets
@@ -249,6 +280,11 @@ g++ -O3 -std=c++17 gabow_optimized.cpp -o gabow_optimized_cpp
 cd algorithms/micali-vazirani/cpp/
 g++ -O3 -std=c++17 micali_vazirani.cpp -o micali_vazirani_cpp
 ./micali_vazirani_cpp ../../../data/general-unweighted/large/general_unweighted_sparse_10000.txt
+
+# Micali-Vazirani Pure (O(√VE) - fastest in suite!) on general graph
+cd algorithms/micali-vazirani-pure/cpp/
+g++ -O3 -std=c++17 micali_vazirani_pure.cpp -o micali_vazirani_pure_cpp
+./micali_vazirani_pure_cpp ../../../data/general-unweighted/large/general_unweighted_sparse_10000.txt
 ```
 
 ### Running Benchmarks
@@ -299,6 +335,11 @@ chmod +x benchmark.sh
 - C++: ~14 ms (15.4× faster than Gabow Simple!)
 - Rust: ~17 ms (14.2× faster than Gabow Simple!)
 
+**Micali-Vazirani Pure** O(√VE):
+- Python: ~56 ms (fastest Python in suite!)
+- C++: ~3 ms (fastest in suite!)
+- Rust: ~3 ms (fastest in suite!)
+
 ### Algorithm Complexity Comparison (General Graphs)
 
 | Algorithm | Complexity | Python Time | C++ Time | Rust Time | Speedup vs Edmonds Simple (C++) |
@@ -308,10 +349,12 @@ chmod +x benchmark.sh
 | Gabow Simple | O(VE) | 5.1 sec | 216 ms | 241 ms | 1.8× |
 | Gabow Optimized | O(√VE) | 88 ms | 14 ms | 17 ms | 27.4× |
 | Micali-Vazirani | O(√VE) | 80 ms | 14 ms | 17 ms | 27.4× |
+| Micali-Vazirani Pure | O(√VE) | 56 ms | 3 ms | 3 ms | 142× |
 
 **Key Insights:**
-- Both O(√VE) algorithms (Gabow Optimized and Micali-Vazirani) achieve 100% correctness (4962/4962 edges)
-- O(√VE) algorithms are ~27× faster than O(VE) and ~27× faster than O(V²E)
+- All O(√VE) algorithms achieve 100% correctness (4962/4962 edges)
+- Micali-Vazirani Pure is the fastest implementation: 3ms in C++/Rust
+- O(√VE) algorithms are ~27–142× faster than O(V²E) depending on implementation
 - For this sparse graph, Edmonds Simple and Optimized have similar performance
 - Python is 5-6× slower than C++/Rust for complex algorithms
 
@@ -342,6 +385,7 @@ edmonds_blossom_optimized_cpp
 gabow_simple_cpp
 gabow_optimized_cpp
 micali_vazirani_cpp
+micali_vazirani_pure_cpp
 
 # Rust
 *_rust

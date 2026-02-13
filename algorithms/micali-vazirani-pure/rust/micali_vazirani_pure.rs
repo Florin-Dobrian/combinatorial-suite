@@ -1,5 +1,5 @@
 /*
- * Micali-Vazirani Pure Algorithm - O(E√V) Maximum Matching - Rust Implementation
+ * Micali-Vazirani Pure Algorithm - O(EâˆšV) Maximum Matching - Rust Implementation
  *
  * True MV with DDFS, tenacity, regular + hanging bridges, petal contraction.
  * Ported from production Jorants MV-Matching-V2 (via C++ port).
@@ -100,7 +100,7 @@ impl Node {
 }
 
 /* =========================================================================
- * MVGraph — the full algorithm
+ * MVGraph â€” the full algorithm
  * ========================================================================= */
 struct MVGraph {
     nodes: Vec<Node>,
@@ -152,7 +152,7 @@ impl MVGraph {
                 adj[v].push(u);
             }
         }
-        for a in &mut adj { a.sort_unstable(); }
+        for a in &mut adj { a.sort_unstable(); a.dedup(); }
 
         self.adj_start = vec![0; n];
         self.deg = vec![0; n];
@@ -165,7 +165,8 @@ impl MVGraph {
     }
 
     /* ---- greedy initialization ---- */
-    fn greedy_init(&mut self) {
+    fn greedy_init(&mut self) -> usize {
+        let mut cnt: usize = 0;
         let n = self.nodes.len();
         for j in 0..n {
             if self.nodes[j].match_ == NIL {
@@ -175,11 +176,40 @@ impl MVGraph {
                         self.nodes[j].match_ = i as i32;
                         self.nodes[i].match_ = j as i32;
                         self.matchnum += 1;
+                        cnt += 1;
                         break;
                     }
                 }
             }
         }
+        cnt
+    }
+
+    /* Min-degree greedy: match each exposed vertex with lowest-degree unmatched neighbor */
+    fn greedy_init_md(&mut self) -> usize {
+        let mut cnt: usize = 0;
+        let nn = self.nodes.len();
+        let mut order: Vec<usize> = (0..nn).collect();
+        order.sort_unstable_by(|&a, &b| self.deg[a].cmp(&self.deg[b]).then(a.cmp(&b)));
+        for j in order {
+            if self.nodes[j].match_ != NIL { continue; }
+            let mut best: i32 = -1;
+            let mut best_deg = usize::MAX;
+            for k in 0..self.deg[j] {
+                let i = self.edges[self.adj_start[j] + k];
+                if self.nodes[i].match_ == NIL && self.deg[i] < best_deg {
+                    best = i as i32;
+                    best_deg = self.deg[i];
+                }
+            }
+            if best >= 0 {
+                self.nodes[j].match_ = best;
+                self.nodes[best as usize].match_ = j as i32;
+                self.matchnum += 1;
+                cnt += 1;
+            }
+        }
+        cnt
     }
 
     /* ---- helpers ---- */
@@ -271,7 +301,7 @@ impl MVGraph {
             self.todonum -= 1;
             let match_ = self.nodes[current].match_;
             if i % 2 == 0 {
-                /* even level — explore non-matching edges */
+                /* even level â€” explore non-matching edges */
                 let start = self.adj_start[current];
                 let d = self.deg[current];
                 for j in 0..d {
@@ -281,7 +311,7 @@ impl MVGraph {
                     }
                 }
             } else {
-                /* odd level — follow matching edge only */
+                /* odd level â€” follow matching edge only */
                 if match_ != NIL {
                     self.step_to(match_ as usize, current, i as i32);
                 }
@@ -333,7 +363,7 @@ impl MVGraph {
     }
 
     /* ==================================================================
-     * DDFS — Double Depth-First Search
+     * DDFS â€” Double Depth-First Search
      * ================================================================== */
 
     fn add_pred_to_stack(preds: &[i32], cur_node: usize, stack: &mut Vec<(i32, usize)>) {
@@ -726,10 +756,11 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <filename>", args[0]);
+        eprintln!("Usage: {} <filename> [--greedy|--greedy-md]", args[0]);
         std::process::exit(1);
     }
 
+    let greedy_mode: i32 = if args.iter().any(|a| a == "--greedy-md") { 2 } else if args.iter().any(|a| a == "--greedy") { 1 } else { 0 };
     match load_graph(&args[1]) {
         Ok((n, edges)) => {
             println!("Graph: {} vertices, {} edges", n, edges.len());
@@ -737,7 +768,11 @@ fn main() {
             let start = Instant::now();
             let mut mv = MVGraph::new();
             mv.build(n, &edges);
-            mv.greedy_init();
+            let greedy_count: usize = match greedy_mode {
+                1 => mv.greedy_init(),
+                2 => mv.greedy_init_md(),
+                _ => 0,
+            };
             mv.max_match();
             let duration = start.elapsed();
 
@@ -745,6 +780,13 @@ fn main() {
             validate_matching(n, &matching);
 
             println!("Matching size: {}", matching.len());
+            if greedy_mode > 0 {
+                let gs = greedy_count;
+                let fs = matching.len();
+                println!("Greedy init size: {}", gs);
+                if fs > 0 { println!("Greedy/Final: {:.2}%", 100.0 * gs as f64 / fs as f64); }
+                else { println!("Greedy/Final: NA"); }
+            }
             println!("Time: {} ms", duration.as_millis());
         }
         Err(e) => {

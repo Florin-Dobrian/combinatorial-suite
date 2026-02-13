@@ -1,7 +1,7 @@
 """
-Hopcroft-Karp Algorithm - O(E√V) Maximum Bipartite Matching
+Hopcroft-Karp Algorithm - O(EâˆšV) Maximum Bipartite Matching
 
-Python implementation — fully deterministic, no hash containers.
+Python implementation â€” fully deterministic, no hash containers.
 """
 
 import sys
@@ -68,7 +68,12 @@ class HopcroftKarp:
         self.dist[u] = INF
         return False
 
-    def maximum_matching(self):
+    def maximum_matching(self, greedy_mode=0):
+        if greedy_mode == 1:
+            self.greedy_size = self._greedy_init()
+        elif greedy_mode == 2:
+            self.greedy_size = self._greedy_init_md()
+
         while self.bfs():
             for u in range(self.left_count):
                 if self.pair_left[u] == NIL:
@@ -80,6 +85,48 @@ class HopcroftKarp:
                 matching.append((u, self.pair_left[u]))
         matching.sort()
         return matching
+
+    greedy_size = 0
+
+    def _greedy_init(self):
+        cnt = 0
+        for u in range(self.left_count):
+            if self.pair_left[u] != NIL:
+                continue
+            for v in self.graph[u]:
+                if self.pair_right[v] == NIL:
+                    self.pair_left[u] = v
+                    self.pair_right[v] = u
+                    cnt += 1
+                    break
+        return cnt
+
+    def _greedy_init_md(self):
+        cnt = 0
+        lc = self.left_count
+        rc = self.right_count
+        # Compute right-side degrees
+        rdeg = [0] * rc
+        for u in range(lc):
+            for v in self.graph[u]:
+                rdeg[v] += 1
+        # Compute left-side degrees
+        ldeg = [len(self.graph[u]) for u in range(lc)]
+        order = sorted(range(lc), key=lambda x: (ldeg[x], x))
+        for u in order:
+            if self.pair_left[u] != NIL:
+                continue
+            best = NIL
+            best_deg = float('inf')
+            for v in self.graph[u]:
+                if self.pair_right[v] == NIL and rdeg[v] < best_deg:
+                    best = v
+                    best_deg = rdeg[v]
+            if best >= 0:
+                self.pair_left[u] = best
+                self.pair_right[best] = u
+                cnt += 1
+        return cnt
 
 
 def validate_matching(left_count, right_count, graph, matching):
@@ -134,20 +181,33 @@ def main():
     print()
 
     if len(sys.argv) < 2:
-        print(f"Usage: python {sys.argv[0]} <filename>")
+        print(f"Usage: python {sys.argv[0]} <filename> [--greedy|--greedy-md]")
         sys.exit(1)
+
+    greedy_mode = 0
+    for arg in sys.argv[2:]:
+        if arg == "--greedy":
+            greedy_mode = 1
+        elif arg == "--greedy-md":
+            greedy_mode = 2
 
     left_count, right_count, edges = load_graph(sys.argv[1])
     print(f"Graph: {left_count} left, {right_count} right, {len(edges)} edges")
 
     t0 = time.time()
     hk = HopcroftKarp(left_count, right_count, edges)
-    matching = hk.maximum_matching()
+    matching = hk.maximum_matching(greedy_mode)
     t1 = time.time()
 
     validate_matching(left_count, right_count, hk.graph, matching)
 
     print(f"Matching size: {len(matching)}")
+    if greedy_mode > 0:
+        print(f"Greedy init size: {hk.greedy_size}")
+        if matching:
+            print(f"Greedy/Final: {100.0 * hk.greedy_size / len(matching):.2f}%")
+        else:
+            print("Greedy/Final: NA")
     print(f"Time: {int((t1 - t0) * 1000)} ms")
 
 

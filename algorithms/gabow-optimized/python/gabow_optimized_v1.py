@@ -1,9 +1,9 @@
 """
-Gabow's Scaling Algorithm (Optimized) - O(EâˆšV) Maximum Matching
+Gabow's Scaling Algorithm (Optimized) - O(E√V) Maximum Matching
 
 Version 1: graph-scan find_apHG with contracted_into.
 
-Pure cardinality (unweighted) â€” integer weights conceptually all 1.
+Pure cardinality (unweighted) — integer weights conceptually all 1.
 Phase 1: BFS by levels (Delta), detect blossoms. Build contracted graph H.
 Phase 2: Find all shortest augmenting paths in H (iterative DFS with blossom
          contraction), unfold to G via bridges.
@@ -463,47 +463,15 @@ class GabowOptimized:
     # ================================================================
     #                      MAIN ENTRY POINT
     # ================================================================
-    greedy_size = 0
-
-    def _greedy_init(self):
-        cnt = 0
+    def maximum_matching(self):
+        # Greedy init
         for u in range(self.n):
-            if self.mate[u] != NIL:
-                continue
+            if self.mate[u] != NIL: continue
             for v in self.graph[u]:
                 if self.mate[v] == NIL:
                     self.mate[u] = v
                     self.mate[v] = u
-                    cnt += 1
                     break
-        return cnt
-
-    def _greedy_init_md(self):
-        cnt = 0
-        n = self.n
-        deg = [len(self.graph[u]) for u in range(n)]
-        order = sorted(range(n), key=lambda x: (deg[x], x))
-        for u in order:
-            if self.mate[u] != NIL:
-                continue
-            best = NIL
-            best_deg = float('inf')
-            for v in self.graph[u]:
-                if self.mate[v] == NIL and deg[v] < best_deg:
-                    best = v
-                    best_deg = deg[v]
-            if best >= 0:
-                self.mate[u] = best
-                self.mate[best] = u
-                cnt += 1
-        return cnt
-
-    def maximum_matching(self, greedy_mode=0):
-        if greedy_mode == 1:
-            self.greedy_size = self._greedy_init()
-        elif greedy_mode == 2:
-            self.greedy_size = self._greedy_init_md()
-
         while self.phase_1():
             self.phase_2()
 
@@ -557,33 +525,20 @@ def main():
     print("==================================================================\n")
 
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <filename> [--greedy|--greedy-md]")
+        print(f"Usage: {sys.argv[0]} <filename>")
         sys.exit(1)
-
-    greedy_mode = 0
-    for arg in sys.argv[2:]:
-        if arg == "--greedy":
-            greedy_mode = 1
-        elif arg == "--greedy-md":
-            greedy_mode = 2
 
     n, edges = load_graph(sys.argv[1])
     print(f"Graph: {n} vertices, {len(edges)} edges")
 
     t0 = time.time()
     gabow = GabowOptimized(n, edges)
-    matching = gabow.maximum_matching(greedy_mode)
+    matching = gabow.maximum_matching()
     t1 = time.time()
 
     validate_matching(n, gabow.graph, matching)
 
     print(f"Matching size: {len(matching)}")
-    if greedy_mode > 0:
-        print(f"Greedy init size: {gabow.greedy_size}")
-        if matching:
-            print(f"Greedy/Final: {100.0 * gabow.greedy_size / len(matching):.2f}%")
-        else:
-            print("Greedy/Final: NA")
     print(f"Time: {int((t1 - t0) * 1000)} ms")
 
 

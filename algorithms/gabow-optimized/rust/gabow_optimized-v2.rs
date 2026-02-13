@@ -1,7 +1,7 @@
 /*
- * Gabow's Scaling Algorithm (Optimized) - O(EâˆšV) Maximum Matching
+ * Gabow's Scaling Algorithm (Optimized) - O(E√V) Maximum Matching
  *
- * Pure cardinality (unweighted) version â€” integer weights conceptually all 1.
+ * Pure cardinality (unweighted) version — integer weights conceptually all 1.
  *
  * Phase 1: BFS by levels (Delta), detect blossoms.
  *          Build contracted graph H: edges connecting different dbase
@@ -10,7 +10,7 @@
  *          with blossom contraction), unfold to G via bridges.
  *
  * Based on LEDA-7's mc_matching_gabow architecture, stripped of weighted
- * dual machinery. Rust implementation â€” fully deterministic, no hash containers.
+ * dual machinery. Rust implementation — fully deterministic, no hash containers.
  */
 
 use std::env;
@@ -25,7 +25,6 @@ const ODD: i32 = 2;
 
 struct GabowOptimized {
     n: usize,
-    greedy_size: usize,
     graph: Vec<Vec<usize>>,
     mate: Vec<i32>,
 
@@ -100,7 +99,6 @@ impl GabowOptimized {
             t_h: 0,
             db2_par: (0..n).collect(),
             contracted_into: vec![Vec::new(); n],
-            greedy_size: 0,
         }
     }
 
@@ -569,61 +567,19 @@ impl GabowOptimized {
     /* ================================================================ */
     /*                      MAIN ENTRY POINT                            */
     /* ================================================================ */
-
-    fn greedy_init(&mut self) -> usize {
-        let mut cnt: usize = 0;
+    fn maximum_matching(&mut self) -> Vec<(usize, usize)> {
+        /* greedy init */
         for u in 0..self.n {
             if self.mate[u] != NIL { continue; }
             let neighbors: Vec<usize> = self.graph[u].clone();
-            for &v in &neighbors {
+            for v in neighbors {
                 if self.mate[v] == NIL {
                     self.mate[u] = v as i32;
                     self.mate[v] = u as i32;
-                    cnt += 1;
                     break;
                 }
             }
         }
-        cnt
-    }
-
-    /* Min-degree greedy: match each exposed vertex with its lowest-degree unmatched neighbor */
-    fn greedy_init_md(&mut self) -> usize {
-        let mut cnt: usize = 0;
-        let mut deg = vec![0usize; self.n];
-        for u in 0..self.n {
-            for &v in &self.graph[u] {
-                deg[v] += 1;
-            }
-        }
-        let mut order: Vec<usize> = (0..self.n).collect();
-        order.sort_unstable_by(|&a, &b| deg[a].cmp(&deg[b]).then(a.cmp(&b)));
-        for u in order {
-            if self.mate[u] != NIL { continue; }
-            let mut best: i32 = -1;
-            let mut best_deg = usize::MAX;
-            let neighbors: Vec<usize> = self.graph[u].clone();
-            for &v in &neighbors {
-                if self.mate[v] == NIL && deg[v] < best_deg {
-                    best = v as i32;
-                    best_deg = deg[v];
-                }
-            }
-            if best >= 0 {
-                self.mate[u] = best;
-                self.mate[best as usize] = u as i32;
-                cnt += 1;
-            }
-        }
-        cnt
-    }
-
-    fn maximum_matching(&mut self, greedy_mode: i32) -> Vec<(usize, usize)> {
-        self.greedy_size = match greedy_mode {
-            1 => self.greedy_init(),
-            2 => self.greedy_init_md(),
-            _ => 0,
-        };
         while self.phase_1() { self.phase_2(); }
 
         let mut result = Vec::new();
@@ -689,27 +645,19 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <filename> [--greedy|--greedy-md]", args[0]);
+        eprintln!("Usage: {} <filename>", args[0]);
         std::process::exit(1);
     }
 
-    let greedy_mode: i32 = if args.iter().any(|a| a == "--greedy-md") { 2 } else if args.iter().any(|a| a == "--greedy") { 1 } else { 0 };
     match load_graph(&args[1]) {
         Ok((n, edges)) => {
             println!("Graph: {} vertices, {} edges", n, edges.len());
             let start = Instant::now();
             let mut gabow = GabowOptimized::new(n, &edges);
-            let matching = gabow.maximum_matching(greedy_mode);
+            let matching = gabow.maximum_matching();
             let duration = start.elapsed();
             validate_matching(n, &gabow.graph, &matching);
             println!("Matching size: {}", matching.len());
-            if greedy_mode > 0 {
-                let gs = gabow.greedy_size;
-                let fs = matching.len();
-                println!("Greedy init size: {}", gs);
-                if fs > 0 { println!("Greedy/Final: {:.2}%", 100.0 * gs as f64 / fs as f64); }
-                else { println!("Greedy/Final: NA"); }
-            }
             println!("Time: {} ms", duration.as_millis());
         }
         Err(e) => {

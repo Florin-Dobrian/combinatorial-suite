@@ -1,5 +1,5 @@
 /*
- * Micali-Vazirani Pure Algorithm - O(E√V) Maximum Matching
+ * Micali-Vazirani Pure Algorithm - O(EâˆšV) Maximum Matching
  *
  * True MV with DDFS, tenacity, regular + hanging bridges, petal contraction.
  * Ported from production Jorants MV-Matching-V2.
@@ -12,6 +12,9 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <climits>
+#include <string>
+#include <string>
 
 static const int NIL = -1;
 
@@ -84,7 +87,7 @@ struct DDFSResult {
 };
 
 /* =========================================================================
- * MVGraph — the full algorithm
+ * MVGraph â€” the full algorithm
  * ========================================================================= */
 struct MVGraph {
     std::vector<Node> nodes;
@@ -117,7 +120,7 @@ struct MVGraph {
                 adj[v].push_back(u);
             }
         }
-        for (int i = 0; i < n; i++) std::sort(adj[i].begin(), adj[i].end());
+        for (int i = 0; i < n; i++) { std::sort(adj[i].begin(), adj[i].end()); adj[i].erase(std::unique(adj[i].begin(), adj[i].end()), adj[i].end()); }
 
         adj_start.resize(n);
         deg.resize(n);
@@ -132,7 +135,8 @@ struct MVGraph {
     }
 
     /* ---- greedy initialization ---- */
-    void greedy_init() {
+    int greedy_init() {
+        int cnt = 0;
         for (int j = 0; j < (int)nodes.size(); j++) {
             if (nodes[j].match == NIL) {
                 for (int k = 0; k < deg[j]; k++) {
@@ -141,11 +145,39 @@ struct MVGraph {
                         nodes[j].match = i;
                         nodes[i].match = j;
                         matchnum++;
+                        cnt++;
                         break;
                     }
                 }
             }
         }
+        return cnt;
+    }
+
+    /* Min-degree greedy: match each exposed vertex with its lowest-degree unmatched neighbor */
+    int greedy_init_md() {
+        int cnt = 0;
+        int nn = (int)nodes.size();
+        std::vector<int> order(nn);
+        for (int i = 0; i < nn; i++) order[i] = i;
+        std::sort(order.begin(), order.end(), [&](int a, int b){ return deg[a] < deg[b] || (deg[a] == deg[b] && a < b); });
+        for (int j : order) {
+            if (nodes[j].match != NIL) continue;
+            int best = -1, best_deg = INT_MAX;
+            for (int k = 0; k < deg[j]; k++) {
+                int i = edges[adj_start[j] + k];
+                if (nodes[i].match == NIL && deg[i] < best_deg) {
+                    best = i; best_deg = deg[i];
+                }
+            }
+            if (best >= 0) {
+                nodes[j].match = best;
+                nodes[best].match = j;
+                matchnum++;
+                cnt++;
+            }
+        }
+        return cnt;
     }
 
     /* ---- helpers ---- */
@@ -287,7 +319,7 @@ struct MVGraph {
     }
 
     /* ==================================================================
-     * DDFS — Double Depth-First Search
+     * DDFS â€” Double Depth-First Search
      * ================================================================== */
 
     void add_pred_to_stack(int cur, std::vector<std::pair<int,int>>& stack) {
@@ -568,7 +600,12 @@ int main(int argc, char* argv[]) {
     printf("Micali-Vazirani Pure Algorithm - C++ Implementation\n");
     printf("====================================================\n\n");
 
-    if (argc < 2) { printf("Usage: %s <filename>\n", argv[0]); return 1; }
+    if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
+    int greedy_mode = 0;
+    for (int i = 2; i < argc; i++) {
+        if (std::string(argv[i]) == "--greedy") greedy_mode = 1;
+        else if (std::string(argv[i]) == "--greedy-md") greedy_mode = 2;
+    }
 
     FILE* f = fopen(argv[1], "r");
     if (!f) { fprintf(stderr, "Cannot open file: %s\n", argv[1]); return 1; }
@@ -590,7 +627,9 @@ int main(int argc, char* argv[]) {
     auto t0 = std::chrono::high_resolution_clock::now();
     MVGraph mv;
     mv.build(n, edge_list);
-    mv.greedy_init();
+    int greedy_count = 0;
+    if (greedy_mode == 1) greedy_count = mv.greedy_init();
+    else if (greedy_mode == 2) greedy_count = mv.greedy_init_md();
     mv.max_match();
     auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -613,6 +652,14 @@ int main(int argc, char* argv[]) {
     printf("%s\n", errors > 0 ? "VALIDATION FAILED" : "VALIDATION PASSED");
     printf("=========================\n\n");
     printf("Matching size: %d\n", matching_size);
+
+    if (greedy_mode > 0) {
+        int gs = greedy_count;
+        int fs = mv.matchnum;
+        printf("Greedy init size: %d\n", gs);
+        if (fs > 0) printf("Greedy/Final: %.2f%%\n", 100.0 * gs / fs);
+        else printf("Greedy/Final: NA\n");
+    }
     printf("Time: %ld ms\n", (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
 
     return 0;

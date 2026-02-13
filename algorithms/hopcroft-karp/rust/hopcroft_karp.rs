@@ -1,7 +1,7 @@
 /*
- * Hopcroft-Karp Algorithm - O(E√V) Maximum Bipartite Matching
+ * Hopcroft-Karp Algorithm - O(EâˆšV) Maximum Bipartite Matching
  *
- * Rust implementation — fully deterministic, no hash containers.
+ * Rust implementation â€” fully deterministic, no hash containers.
  */
 
 use std::env;
@@ -13,6 +13,7 @@ const NIL: i32 = -1;
 
 struct HopcroftKarp {
     left_count: usize,
+    greedy_size: usize,
     right_count: usize,
     graph: Vec<Vec<usize>>,
     pair_left: Vec<i32>,
@@ -28,10 +29,11 @@ impl HopcroftKarp {
                 graph[u].push(v);
             }
         }
-        for adj in &mut graph { adj.sort_unstable(); }
+        for adj in &mut graph { adj.sort_unstable(); adj.dedup(); }
 
         HopcroftKarp {
             left_count,
+            greedy_size: 0,
             right_count,
             graph,
             pair_left: vec![NIL; left_count],
@@ -99,7 +101,61 @@ impl HopcroftKarp {
         false
     }
 
-    fn maximum_matching(&mut self) -> Vec<(usize, usize)> {
+
+    fn greedy_init(&mut self) -> usize {
+        let mut cnt: usize = 0;
+        for u in 0..self.left_count {
+            if self.pair_left[u] != NIL { continue; }
+            let neighbors: Vec<usize> = self.graph[u].clone();
+            for &v in &neighbors {
+                if self.pair_right[v] == NIL {
+                    self.pair_left[u] = v as i32;
+                    self.pair_right[v] = u as i32;
+                    cnt += 1;
+                    break;
+                }
+            }
+        }
+        cnt
+    }
+
+    /* Min-degree greedy: match each exposed left vertex with lowest-degree unmatched right neighbor */
+    fn greedy_init_md(&mut self) -> usize {
+        let mut cnt: usize = 0;
+        let mut deg = vec![0usize; self.right_count];
+        for u in 0..self.left_count {
+            for &v in &self.graph[u] {
+                deg[v] += 1;
+            }
+        }
+        let mut order: Vec<usize> = (0..self.left_count).collect();
+        order.sort_unstable_by(|&a, &b| self.graph[a].len().cmp(&self.graph[b].len()).then(a.cmp(&b)));
+        for u in order {
+            if self.pair_left[u] != NIL { continue; }
+            let mut best: i32 = -1;
+            let mut best_deg = usize::MAX;
+            let neighbors: Vec<usize> = self.graph[u].clone();
+            for &v in &neighbors {
+                if self.pair_right[v] == NIL && deg[v] < best_deg {
+                    best = v as i32;
+                    best_deg = deg[v];
+                }
+            }
+            if best >= 0 {
+                self.pair_left[u] = best;
+                self.pair_right[best as usize] = u as i32;
+                cnt += 1;
+            }
+        }
+        cnt
+    }
+
+    fn maximum_matching(&mut self, greedy_mode: i32) -> Vec<(usize, usize)> {
+        self.greedy_size = match greedy_mode {
+            1 => self.greedy_init(),
+            2 => self.greedy_init_md(),
+            _ => 0,
+        };
         while self.bfs() {
             for u in 0..self.left_count {
                 if self.pair_left[u] == NIL {
@@ -184,22 +240,30 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <filename>", args[0]);
+        eprintln!("Usage: {} <filename> [--greedy|--greedy-md]", args[0]);
         std::process::exit(1);
     }
 
+    let greedy_mode: i32 = if args.iter().any(|a| a == "--greedy-md") { 2 } else if args.iter().any(|a| a == "--greedy") { 1 } else { 0 };
     match load_graph(&args[1]) {
         Ok((left_count, right_count, edges)) => {
             println!("Graph: {} left, {} right, {} edges", left_count, right_count, edges.len());
 
             let start = Instant::now();
             let mut hk = HopcroftKarp::new(left_count, right_count, &edges);
-            let matching = hk.maximum_matching();
+            let matching = hk.maximum_matching(greedy_mode);
             let duration = start.elapsed();
 
             validate_matching(left_count, right_count, &hk.graph, &matching);
 
             println!("Matching size: {}", matching.len());
+            if greedy_mode > 0 {
+                let gs = hk.greedy_size;
+                let fs = matching.len();
+                println!("Greedy init size: {}", gs);
+                if fs > 0 { println!("Greedy/Final: {:.2}%", 100.0 * gs as f64 / fs as f64); }
+                else { println!("Greedy/Final: NA"); }
+            }
             println!("Time: {} ms", duration.as_millis());
         }
         Err(e) => {

@@ -1,7 +1,7 @@
 /*
- * Gabow's Scaling Algorithm (Optimized) - O(EâˆšV) Maximum Matching
+ * Gabow's Scaling Algorithm (Optimized) - O(E√V) Maximum Matching
  *
- * Pure cardinality (unweighted) version â€” integer weights conceptually all 1.
+ * Pure cardinality (unweighted) version — integer weights conceptually all 1.
  *
  * Phase 1: BFS by levels (Delta), detect blossoms.
  *          Build contracted graph H: edges connecting different dbase
@@ -20,8 +20,6 @@
 #include <cstdlib>
 #include <vector>
 #include <algorithm>
-#include <string>
-#include <climits>
 #include <chrono>
 
 static const int NIL = -1;
@@ -31,7 +29,6 @@ static const int ODD = 2;
 
 struct GabowOptimized {
     int n;
-    int greedy_size = 0;
     std::vector<std::vector<int>> graph;
     std::vector<int> mate;
 
@@ -113,7 +110,7 @@ struct GabowOptimized {
             }
         }
         for (int i = 0; i < n; i++) {
-            std::sort(graph[i].begin(), graph[i].end()); graph[i].erase(std::unique(graph[i].begin(), graph[i].end()), graph[i].end());
+            std::sort(graph[i].begin(), graph[i].end());
             graph[i].erase(std::unique(graph[i].begin(), graph[i].end()), graph[i].end());
         }
         level_queue.resize(n + 2);
@@ -282,13 +279,13 @@ struct GabowOptimized {
                 } else if (label[bu] == EVEN) {
                     int lca = find_lca(z, u);
                     if (lca != NIL) {
-                        /* Blossom â€” record the shrink edge as H-edge */
+                        /* Blossom — record the shrink edge as H-edge */
                         shrink_path(lca, z, u, dunions);
                         shrink_path(lca, u, z, dunions);
                     } else {
                         /* Augmenting path found */
                         found_sap = true;
-                        /* DON'T break â€” continue all edges at this Delta */
+                        /* DON'T break — continue all edges at this Delta */
                     }
                 }
             }
@@ -370,7 +367,7 @@ struct GabowOptimized {
                     if (labelH[uh] == UNLABELED) {
                         int muh = mateH[uh];
                         if (muh == NIL) {
-                            /* Free node â€” augmenting path found! */
+                            /* Free node — augmenting path found! */
                             labelH[uh] = ODD;
                             parentH_src[uh] = w;
                             parentH_tgt[uh] = v;
@@ -422,7 +419,7 @@ struct GabowOptimized {
                 f.ci_idx++;
                 f.adj_idx = 0;
             }
-            /* Done with all G-vertices in vh â€” backtrack */
+            /* Done with all G-vertices in vh — backtrack */
             stk.pop_back();
             continue;
 
@@ -565,43 +562,15 @@ struct GabowOptimized {
 
     /* ================================================================ */
     /*                      MAIN ENTRY POINT                            */
-    /* Min-degree greedy: match each exposed vertex with its lowest-degree unmatched neighbor */
-    int greedy_init_md() {
-        int cnt = 0;
-        std::vector<int> deg(n, 0);
-        for (int u = 0; u < n; u++)
-            for (int v : graph[u])
-                deg[v]++;
-        std::vector<int> order(n);
-        for (int i = 0; i < n; i++) order[i] = i;
-        std::sort(order.begin(), order.end(), [&](int a, int b){ return deg[a] < deg[b] || (deg[a] == deg[b] && a < b); });
-        for (int u : order) {
-            if (mate[u] != NIL) continue;
-            int best = -1, best_deg = INT_MAX;
-            for (int v : graph[u]) {
-                if (mate[v] == NIL && deg[v] < best_deg) {
-                    best = v; best_deg = deg[v];
-                }
-            }
-            if (best >= 0) { mate[u] = best; mate[best] = u; cnt++; }
-        }
-        return cnt;
-    }
-
     /* ================================================================ */
-    std::vector<std::pair<int,int>> maximum_matching(int greedy_mode = 0) {
-        int greedy_count = 0;
-        if (greedy_mode == 1) {
-            for (int u = 0; u < n; u++) {
-                if (mate[u] != NIL) continue;
-                for (int v : graph[u]) {
-                    if (mate[v] == NIL) { mate[u] = v; mate[v] = u; greedy_count++; break; }
-                }
+    std::vector<std::pair<int,int>> maximum_matching() {
+        /* greedy init */
+        for (int u = 0; u < n; u++) {
+            if (mate[u] != NIL) continue;
+            for (int v : graph[u]) {
+                if (mate[v] == NIL) { mate[u] = v; mate[v] = u; break; }
             }
-        } else if (greedy_mode == 2) {
-            greedy_count = greedy_init_md();
         }
-        greedy_size = greedy_count;
         while (phase_1()) phase_2();
 
         std::vector<std::pair<int,int>> result;
@@ -645,12 +614,7 @@ int main(int argc, char* argv[]) {
     printf("Gabow's Scaling Algorithm (Optimized) - C++ Implementation\n");
     printf("============================================================\n\n");
 
-    if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
-    int greedy_mode = 0;
-    for (int i = 2; i < argc; i++) {
-        if (std::string(argv[i]) == "--greedy") greedy_mode = 1;
-        else if (std::string(argv[i]) == "--greedy-md") greedy_mode = 2;
-    }
+    if (argc < 2) { printf("Usage: %s <filename>\n", argv[0]); return 1; }
 
     FILE* f = fopen(argv[1], "r");
     if (!f) { fprintf(stderr, "Cannot open file: %s\n", argv[1]); return 1; }
@@ -671,20 +635,12 @@ int main(int argc, char* argv[]) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
     GabowOptimized gabow(n, edges);
-    auto matching = gabow.maximum_matching(greedy_mode);
+    auto matching = gabow.maximum_matching();
     auto t1 = std::chrono::high_resolution_clock::now();
 
     validate_matching(n, gabow.graph, matching);
 
     printf("Matching size: %d\n", (int)matching.size());
-
-    if (greedy_mode > 0) {
-        int gs = gabow.greedy_size;
-        int fs = (int)matching.size();
-        printf("Greedy init size: %d\n", gs);
-        if (fs > 0) printf("Greedy/Final: %.2f%%\n", 100.0 * gs / fs);
-        else printf("Greedy/Final: NA\n");
-    }
     printf("Time: %ld ms\n", (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
 
     return 0;

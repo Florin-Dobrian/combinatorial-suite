@@ -1,5 +1,5 @@
 /*
- * Hopcroft-Karp Algorithm - O(E√V) Maximum Bipartite Matching
+ * Hopcroft-Karp Algorithm - O(EâˆšV) Maximum Bipartite Matching
  *
  * BFS to find shortest augmenting path length, then DFS to find
  * all vertex-disjoint augmenting paths of that length.
@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <vector>
 #include <algorithm>
+#include <string>
 #include <chrono>
 #include <climits>
 
@@ -18,6 +19,7 @@ static const int NIL = -1;
 
 struct HopcroftKarp {
     int left_count;
+    int greedy_size = 0;
     int right_count;
     std::vector<std::vector<int>> graph; /* graph[u] = list of right nodes */
     std::vector<int> pair_left;
@@ -32,7 +34,7 @@ struct HopcroftKarp {
             if (u >= 0 && u < lc && v >= 0 && v < rc)
                 graph[u].push_back(v);
         }
-        for (int i = 0; i < lc; i++) std::sort(graph[i].begin(), graph[i].end());
+        for (int i = 0; i < lc; i++) { std::sort(graph[i].begin(), graph[i].end()); graph[i].erase(std::unique(graph[i].begin(), graph[i].end()), graph[i].end()); }
 
         pair_left.assign(lc, NIL);
         pair_right.assign(rc, NIL);
@@ -80,7 +82,50 @@ struct HopcroftKarp {
         return false;
     }
 
-    std::vector<std::pair<int,int>> maximum_matching() {
+    /* Greedy initial matching: iterate left vertices, pick first available right neighbor */
+    int greedy_init() {
+        int cnt = 0;
+        for (int u = 0; u < left_count; u++) {
+            if (pair_left[u] != NIL) continue;
+            for (int v : graph[u]) {
+                if (pair_right[v] == NIL) { pair_left[u] = v; pair_right[v] = u; cnt++; break; }
+            }
+        }
+        return cnt;
+    }
+
+    /* Min-degree greedy: match each exposed left vertex with its lowest-degree unmatched right neighbor */
+    int greedy_init_md() {
+        int cnt = 0;
+        std::vector<int> deg(right_count, 0);
+        for (int u = 0; u < left_count; u++)
+            for (int v : graph[u])
+                deg[v]++;
+        std::vector<int> order(left_count);
+        for (int i = 0; i < left_count; i++) order[i] = i;
+        std::sort(order.begin(), order.end(), [&](int a, int b){
+            return (int)graph[a].size() < (int)graph[b].size() ||
+                   ((int)graph[a].size() == (int)graph[b].size() && a < b);
+        });
+        for (int u : order) {
+            if (pair_left[u] != NIL) continue;
+            int best = -1, best_deg = INT_MAX;
+            for (int v : graph[u]) {
+                if (pair_right[v] == NIL && deg[v] < best_deg) {
+                    best = v; best_deg = deg[v];
+                }
+            }
+            if (best >= 0) { pair_left[u] = best; pair_right[best] = u; cnt++; }
+        }
+        return cnt;
+    }
+
+
+    std::vector<std::pair<int,int>> maximum_matching(int greedy_mode = 0) {
+        int greedy_count = 0;
+        if (greedy_mode == 1) greedy_count = greedy_init();
+        else if (greedy_mode == 2) greedy_count = greedy_init_md();
+        greedy_size = greedy_count;
         while (bfs()) {
             for (int u = 0; u < left_count; u++) {
                 if (pair_left[u] == NIL) dfs(u);
@@ -130,7 +175,12 @@ int main(int argc, char* argv[]) {
     printf("Hopcroft-Karp Algorithm - C++ Implementation\n");
     printf("==============================================\n\n");
 
-    if (argc < 2) { printf("Usage: %s <filename>\n", argv[0]); return 1; }
+    if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
+    int greedy_mode = 0;
+    for (int i = 2; i < argc; i++) {
+        if (std::string(argv[i]) == "--greedy") greedy_mode = 1;
+        else if (std::string(argv[i]) == "--greedy-md") greedy_mode = 2;
+    }
 
     FILE* f = fopen(argv[1], "r");
     if (!f) { fprintf(stderr, "Cannot open file: %s\n", argv[1]); return 1; }
@@ -151,12 +201,20 @@ int main(int argc, char* argv[]) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
     HopcroftKarp hk(lc, rc, edges);
-    auto matching = hk.maximum_matching();
+    auto matching = hk.maximum_matching(greedy_mode);
     auto t1 = std::chrono::high_resolution_clock::now();
 
     validate_matching(lc, rc, hk.graph, matching);
 
     printf("Matching size: %d\n", (int)matching.size());
+
+    if (greedy_mode > 0) {
+        int gs = hk.greedy_size;
+        int fs = (int)matching.size();
+        printf("Greedy init size: %d\n", gs);
+        if (fs > 0) printf("Greedy/Final: %.2f%%\n", 100.0 * gs / fs);
+        else printf("Greedy/Final: NA\n");
+    }
     printf("Time: %ld ms\n", (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
 
     return 0;

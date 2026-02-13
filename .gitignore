@@ -12,12 +12,11 @@ __pycache__/
 *_rust
 *.rlib
 
-# Test results
-results/
-
 # macOS
 .DS_Store
 
 # IDE
 .vscode/
 .idea/
+data/
+results/

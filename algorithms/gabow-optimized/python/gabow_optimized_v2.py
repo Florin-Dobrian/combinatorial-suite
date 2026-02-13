@@ -1,20 +1,21 @@
 """
-Gabow's Scaling Algorithm (Optimized) - O(EâˆšV) Maximum Matching
+Gabow's Scaling Algorithm (Optimized) - O(E√V) Maximum Matching
 
-Version 1: graph-scan find_apHG with contracted_into.
+Version 2: precomputed H-adjacency, no contracted_into.
 
-Pure cardinality (unweighted) â€” integer weights conceptually all 1.
-Phase 1: BFS by levels (Delta), detect blossoms. Build contracted graph H.
+Pure cardinality (unweighted) — integer weights conceptually all 1.
+Phase 1: BFS by levels (Delta), detect blossoms. Build contracted graph H
+         with precomputed adjacency lists.
 Phase 2: Find all shortest augmenting paths in H (iterative DFS with blossom
-         contraction), unfold to G via bridges.
+         contraction) using H-adjacency. Unfold to G via bridges.
 
-Based on LEDA-7's mc_matching_gabow architecture, stripped of weighted
-dual machinery. All integers, fully deterministic.
+Based on LEDA-7's mc_matching_gabow architecture, adapted for pure cardinality.
+All integers, fully deterministic.
 """
 
 import sys
 import time
-from bisect import insort, bisect_left
+from bisect import bisect_left
 
 NIL = -1
 UNLABELED = 0
@@ -48,6 +49,8 @@ class GabowOptimized:
         self.tree_nodes = []
         self.delta = 0
 
+        self.h_adj = [[] for _ in range(n)]  # precomputed H-adjacency
+
         self.rep = [0] * n
         self.mate_h = [NIL] * n
         self.label_h = [UNLABELED] * n
@@ -59,7 +62,6 @@ class GabowOptimized:
         self.even_time_h = [0] * n
         self.t_h = 0
         self.db2_par = list(range(n))
-        self.contracted_into = [[] for _ in range(n)]
 
     # ---- union-find: base ----
     def find_base(self, v):
@@ -233,12 +235,9 @@ class GabowOptimized:
                         found_sap = True
 
             if found_sap:
-                # Build H
-                for v in self.tree_nodes:
-                    db = self.find_dbase(v)
-                    self.contracted_into[db].append(v)
-                    self.mate_h[v] = NIL
+                # Build H: mateH and h_adj
                 for u in self.tree_nodes:
+                    self.mate_h[u] = NIL
                     uh = self.find_dbase(u)
                     mv = self.mate[u]
                     if mv != NIL and self.in_tree[mv]:
@@ -246,6 +245,15 @@ class GabowOptimized:
                         if uh != vh:
                             self.mate_h[uh] = vh
                             self.mate_h[vh] = uh
+                # Build h_adj: non-matching edges between different dbase components
+                for u in self.tree_nodes:
+                    uh = self.find_dbase(u)
+                    for w in self.graph[u]:
+                        if not self.in_tree[w]: continue
+                        if self.mate[u] == w: continue
+                        wh = self.find_dbase(w)
+                        if uh == wh: continue
+                        self.h_adj[uh].append((u, w))
                 return True
 
             for a, b in dunions:
@@ -263,79 +271,69 @@ class GabowOptimized:
     # ================================================================
 
     def find_ap_hg(self, root_vh):
-        """Iterative DFS in H using contracted_into + graph scan."""
-        # Stack: (vh, ci_idx, adj_idx)
-        stk = [[root_vh, 0, 0]]
+        """Iterative DFS in H using precomputed h_adj."""
+        # Stack: [vh, edge_idx]
+        stk = [[root_vh, 0]]
 
         while stk:
             f = stk[-1]
             vh = f[0]
-            ci = self.contracted_into[vh]
+            adj = self.h_adj[vh]
 
             found_next = False
-            while f[1] < len(ci):
-                v = ci[f[1]]
-                gv = self.graph[v]
-                while f[2] < len(gv):
-                    w = gv[f[2]]
-                    f[2] += 1
+            while f[1] < len(adj):
+                v, w = adj[f[1]]
+                f[1] += 1
 
-                    if not self.in_tree[w]: continue
-                    if self.mate[v] == w: continue
-                    if self.find_dbase(w) == self.find_dbase(v): continue
-                    uh = self.find_db2(self.rep[w])
-                    if self.mate_h[vh] == uh: continue
-                    if self.label_h[uh] == ODD: continue
+                uh = self.find_db2(self.rep[w])
+                if uh == self.find_db2(vh): continue
+                if self.mate_h[vh] == uh: continue
+                if self.label_h[uh] == ODD: continue
 
-                    if self.label_h[uh] == UNLABELED:
-                        muh = self.mate_h[uh]
-                        if muh == NIL:
-                            self.label_h[uh] = ODD
-                            self.parent_h_src[uh] = w
-                            self.parent_h_tgt[uh] = v
-                            return uh
+                if self.label_h[uh] == UNLABELED:
+                    muh = self.mate_h[uh]
+                    if muh == NIL:
                         self.label_h[uh] = ODD
                         self.parent_h_src[uh] = w
                         self.parent_h_tgt[uh] = v
-                        self.label_h[muh] = EVEN
-                        self.even_time_h[muh] = self.t_h
-                        self.t_h += 1
-                        stk.append([muh, 0, 0])
+                        return uh
+                    self.label_h[uh] = ODD
+                    self.parent_h_src[uh] = w
+                    self.parent_h_tgt[uh] = v
+                    self.label_h[muh] = EVEN
+                    self.even_time_h[muh] = self.t_h
+                    self.t_h += 1
+                    stk.append([muh, 0])
+                    found_next = True
+                    break
+
+                elif self.label_h[uh] == EVEN:
+                    bh = self.find_db2(vh)
+                    zh = self.find_db2(uh)
+                    if self.even_time_h[bh] < self.even_time_h[zh]:
+                        tmp = []
+                        endpoints = []
+                        cur = zh
+                        while cur != bh:
+                            endpoints.append(cur)
+                            mc = self.mate_h[cur]
+                            endpoints.append(mc)
+                            tmp.append(mc)
+                            ps = self.parent_h_src[mc]
+                            pt = self.parent_h_tgt[mc]
+                            nxt = self.rep[pt] if self.rep[ps] == mc else self.rep[ps]
+                            cur = self.find_db2(nxt)
+                        for nd in endpoints:
+                            self.union_db2(nd, bh)
+                        self.make_rep_db2(bh)
+                        for mc in tmp:
+                            self.bridge_h_src[mc] = v
+                            self.bridge_h_tgt[mc] = w
+                            self.dir_h[mc] = -1
+                        for i in range(len(tmp) - 1, -1, -1):
+                            stk.append([tmp[i], 0])
                         found_next = True
                         break
-
-                    elif self.label_h[uh] == EVEN:
-                        bh = self.find_db2(vh)
-                        zh = self.find_db2(uh)
-                        if self.even_time_h[bh] < self.even_time_h[zh]:
-                            tmp = []
-                            endpoints = []
-                            cur = zh
-                            while cur != bh:
-                                endpoints.append(cur)
-                                mc = self.mate_h[cur]
-                                endpoints.append(mc)
-                                tmp.append(mc)
-                                ps = self.parent_h_src[mc]
-                                pt = self.parent_h_tgt[mc]
-                                nxt = self.rep[pt] if self.rep[ps] == mc else self.rep[ps]
-                                cur = self.find_db2(nxt)
-                            for nd in endpoints:
-                                self.union_db2(nd, bh)
-                            self.make_rep_db2(bh)
-                            for mc in tmp:
-                                self.bridge_h_src[mc] = v
-                                self.bridge_h_tgt[mc] = w
-                                self.dir_h[mc] = -1
-                            for i in range(len(tmp) - 1, -1, -1):
-                                stk.append([tmp[i], 0, 0])
-                            found_next = True
-                            break
-
-                if found_next:
-                    break
-                f[1] += 1
-                f[2] = 0
 
             if not found_next:
                 stk.pop()
@@ -344,7 +342,6 @@ class GabowOptimized:
 
     def trace_h_path(self, vh, uh, edges_out):
         """Iterative trace from vh to uh in H, collecting non-matching G-edges."""
-        # Stack: [vh, uh, phase, bs, bt, side_a, side_b]
         stk = [[vh, uh, 0, 0, 0, 0, 0]]
         while stk:
             f = stk[-1]
@@ -382,7 +379,6 @@ class GabowOptimized:
 
     def find_path_in_g(self, v, u, pairs):
         """Iterative unfold within single H-node."""
-        # Stack: [v, u, phase, sb, tb]
         stk = [[v, u, 0, 0, 0]]
         while stk:
             f = stk[-1]
@@ -454,56 +450,25 @@ class GabowOptimized:
         for he in all_paths:
             self.augment_g(he)
 
+        # Clean up
         for v in self.tree_nodes:
             db = self.find_dbase(v)
-            self.contracted_into[db].clear()
-            self.contracted_into[v].clear()
+            self.h_adj[db].clear()
+            self.h_adj[v].clear()
             self.mate_h[v] = NIL
 
     # ================================================================
     #                      MAIN ENTRY POINT
     # ================================================================
-    greedy_size = 0
-
-    def _greedy_init(self):
-        cnt = 0
+    def maximum_matching(self):
+        # Greedy init
         for u in range(self.n):
-            if self.mate[u] != NIL:
-                continue
+            if self.mate[u] != NIL: continue
             for v in self.graph[u]:
                 if self.mate[v] == NIL:
                     self.mate[u] = v
                     self.mate[v] = u
-                    cnt += 1
                     break
-        return cnt
-
-    def _greedy_init_md(self):
-        cnt = 0
-        n = self.n
-        deg = [len(self.graph[u]) for u in range(n)]
-        order = sorted(range(n), key=lambda x: (deg[x], x))
-        for u in order:
-            if self.mate[u] != NIL:
-                continue
-            best = NIL
-            best_deg = float('inf')
-            for v in self.graph[u]:
-                if self.mate[v] == NIL and deg[v] < best_deg:
-                    best = v
-                    best_deg = deg[v]
-            if best >= 0:
-                self.mate[u] = best
-                self.mate[best] = u
-                cnt += 1
-        return cnt
-
-    def maximum_matching(self, greedy_mode=0):
-        if greedy_mode == 1:
-            self.greedy_size = self._greedy_init()
-        elif greedy_mode == 2:
-            self.greedy_size = self._greedy_init_md()
-
         while self.phase_1():
             self.phase_2()
 
@@ -553,37 +518,24 @@ def load_graph(filename):
 
 
 def main():
-    print("Gabow's Scaling Algorithm (Optimized V1) - Python Implementation")
+    print("Gabow's Scaling Algorithm (Optimized V2) - Python Implementation")
     print("==================================================================\n")
 
     if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <filename> [--greedy|--greedy-md]")
+        print(f"Usage: {sys.argv[0]} <filename>")
         sys.exit(1)
-
-    greedy_mode = 0
-    for arg in sys.argv[2:]:
-        if arg == "--greedy":
-            greedy_mode = 1
-        elif arg == "--greedy-md":
-            greedy_mode = 2
 
     n, edges = load_graph(sys.argv[1])
     print(f"Graph: {n} vertices, {len(edges)} edges")
 
     t0 = time.time()
     gabow = GabowOptimized(n, edges)
-    matching = gabow.maximum_matching(greedy_mode)
+    matching = gabow.maximum_matching()
     t1 = time.time()
 
     validate_matching(n, gabow.graph, matching)
 
     print(f"Matching size: {len(matching)}")
-    if greedy_mode > 0:
-        print(f"Greedy init size: {gabow.greedy_size}")
-        if matching:
-            print(f"Greedy/Final: {100.0 * gabow.greedy_size / len(matching):.2f}%")
-        else:
-            print("Greedy/Final: NA")
     print(f"Time: {int((t1 - t0) * 1000)} ms")
 
 

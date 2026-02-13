@@ -45,6 +45,7 @@ impl Node {
 
 struct MicaliVazirani {
     n: usize,
+    greedy_size: usize,
     graph: Vec<Vec<usize>>,
     nodes: Vec<Node>,
     base: Vec<usize>,
@@ -60,10 +61,11 @@ impl MicaliVazirani {
                 graph[v].push(u);
             }
         }
-        for adj in &mut graph { adj.sort_unstable(); }
+        for adj in &mut graph { adj.sort_unstable(); adj.dedup(); }
 
         MicaliVazirani {
             n,
+            greedy_size: 0,
             graph,
             nodes: (0..n).map(|_| Node::new()).collect(),
             base: (0..n).collect(),
@@ -185,7 +187,61 @@ impl MicaliVazirani {
         found
     }
 
-    fn maximum_matching(&mut self) -> Vec<(usize, usize)> {
+
+    fn greedy_init(&mut self) -> usize {
+        let mut cnt: usize = 0;
+        for u in 0..self.n {
+            if self.mate[u] != NIL { continue; }
+            let neighbors: Vec<usize> = self.graph[u].clone();
+            for &v in &neighbors {
+                if self.mate[v] == NIL {
+                    self.mate[u] = v as i32;
+                    self.mate[v] = u as i32;
+                    cnt += 1;
+                    break;
+                }
+            }
+        }
+        cnt
+    }
+
+    /* Min-degree greedy: match each exposed vertex with its lowest-degree unmatched neighbor */
+    fn greedy_init_md(&mut self) -> usize {
+        let mut cnt: usize = 0;
+        let mut deg = vec![0usize; self.n];
+        for u in 0..self.n {
+            for &v in &self.graph[u] {
+                deg[v] += 1;
+            }
+        }
+        let mut order: Vec<usize> = (0..self.n).collect();
+        order.sort_unstable_by_key(|&u| deg[u]);
+        for u in order {
+            if self.mate[u] != NIL { continue; }
+            let mut best: i32 = -1;
+            let mut best_deg = usize::MAX;
+            let neighbors: Vec<usize> = self.graph[u].clone();
+            for &v in &neighbors {
+                if self.mate[v] == NIL && deg[v] < best_deg {
+                    best = v as i32;
+                    best_deg = deg[v];
+                }
+            }
+            if best >= 0 {
+                self.mate[u] = best;
+                self.mate[best as usize] = u as i32;
+                cnt += 1;
+            }
+        }
+        cnt
+    }
+
+    fn maximum_matching(&mut self, greedy_mode: i32) -> Vec<(usize, usize)> {
+        self.greedy_size = match greedy_mode {
+            1 => self.greedy_init(),
+            2 => self.greedy_init_md(),
+            _ => 0,
+        };
         loop {
             self.phase_1();
             if !self.phase_2() { break; }
@@ -255,22 +311,30 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <filename>", args[0]);
+        eprintln!("Usage: {} <filename> [--greedy|--greedy-md]", args[0]);
         std::process::exit(1);
     }
 
+    let greedy_mode: i32 = if args.iter().any(|a| a == "--greedy-md") { 2 } else if args.iter().any(|a| a == "--greedy") { 1 } else { 0 };
     match load_graph(&args[1]) {
         Ok((n, edges)) => {
             println!("Graph: {} vertices, {} edges", n, edges.len());
 
             let start = Instant::now();
             let mut mv = MicaliVazirani::new(n, &edges);
-            let matching = mv.maximum_matching();
+            let matching = mv.maximum_matching(greedy_mode);
             let duration = start.elapsed();
 
             validate_matching(n, &mv.graph, &matching);
 
             println!("Matching size: {}", matching.len());
+            if greedy_mode > 0 {
+                let gs = mv.greedy_size;
+                let fs = matching.len();
+                println!("Greedy init size: {}", gs);
+                if fs > 0 { println!("Greedy/Final: {:.2}%", 100.0 * gs as f64 / fs as f64); }
+                else { println!("Greedy/Final: NA"); }
+            }
             println!("Time: {} ms", duration.as_millis());
         }
         Err(e) => {

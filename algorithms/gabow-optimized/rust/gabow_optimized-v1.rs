@@ -1,7 +1,7 @@
 /*
- * Gabow's Scaling Algorithm (Optimized) - O(EâˆšV) Maximum Matching
+ * Gabow's Scaling Algorithm (Optimized) - O(E√V) Maximum Matching
  *
- * Pure cardinality (unweighted) version â€” integer weights conceptually all 1.
+ * Pure cardinality (unweighted) version — integer weights conceptually all 1.
  *
  * Phase 1: BFS by levels (Delta), detect blossoms.
  *          Build contracted graph H: edges connecting different dbase
@@ -10,7 +10,7 @@
  *          with blossom contraction), unfold to G via bridges.
  *
  * Based on LEDA-7's mc_matching_gabow architecture, stripped of weighted
- * dual machinery. Rust implementation â€” fully deterministic, no hash containers.
+ * dual machinery. Rust implementation — fully deterministic, no hash containers.
  */
 
 use std::env;
@@ -25,28 +25,21 @@ const ODD: i32 = 2;
 
 struct GabowOptimized {
     n: usize,
-    greedy_size: usize,
     graph: Vec<Vec<usize>>,
     mate: Vec<i32>,
-
     label: Vec<i32>,
     parent: Vec<i32>,
     source_bridge: Vec<i32>,
     target_bridge: Vec<i32>,
-
     base_par: Vec<usize>,
     dbase_par: Vec<usize>,
-
     level_queue: Vec<Vec<(usize, usize)>>,
-
     lca_tag1: Vec<usize>,
     lca_tag2: Vec<usize>,
     lca_epoch: usize,
-
     in_tree: Vec<bool>,
     tree_nodes: Vec<usize>,
     delta: i32,
-
     rep: Vec<usize>,
     mate_h: Vec<i32>,
     label_h: Vec<i32>,
@@ -100,11 +93,9 @@ impl GabowOptimized {
             t_h: 0,
             db2_par: (0..n).collect(),
             contracted_into: vec![Vec::new(); n],
-            greedy_size: 0,
         }
     }
 
-    /* ---- union-find: base ---- */
     fn find_base(&mut self, mut v: usize) -> usize {
         while self.base_par[v] != v {
             self.base_par[v] = self.base_par[self.base_par[v]];
@@ -119,7 +110,6 @@ impl GabowOptimized {
         self.base_par[fb] = r;
     }
 
-    /* ---- union-find: dbase ---- */
     fn find_dbase(&mut self, mut v: usize) -> usize {
         while self.dbase_par[v] != v {
             self.dbase_par[v] = self.dbase_par[self.dbase_par[v]];
@@ -137,7 +127,6 @@ impl GabowOptimized {
         if r != v { self.dbase_par[r] = v; self.dbase_par[v] = v; }
     }
 
-    /* ---- union-find: dbase2 ---- */
     fn find_db2(&mut self, mut v: usize) -> usize {
         while self.db2_par[v] != v {
             self.db2_par[v] = self.db2_par[self.db2_par[v]];
@@ -155,7 +144,6 @@ impl GabowOptimized {
         if r != v { self.db2_par[r] = v; self.db2_par[v] = v; }
     }
 
-    /* ---- interleaved LCA ---- */
     fn find_lca(&mut self, u: usize, v: usize) -> i32 {
         self.lca_epoch += 1;
         let ep = self.lca_epoch;
@@ -180,7 +168,6 @@ impl GabowOptimized {
         }
     }
 
-    /* ---- shrink_path ---- */
     fn shrink_path(&mut self, b: usize, x: usize, y: usize,
                    dunions: &mut Vec<(usize, usize)>) {
         let mut v = self.find_base(x);
@@ -210,9 +197,6 @@ impl GabowOptimized {
         dunions.push((b, b));
     }
 
-    /* ================================================================ */
-    /*                          PHASE 1                                 */
-    /* ================================================================ */
     fn phase_1(&mut self) -> bool {
         self.delta = 0;
         self.tree_nodes.clear();
@@ -229,7 +213,6 @@ impl GabowOptimized {
             self.in_tree[i] = false;
         }
 
-        /* Free vertices are EVEN roots at Delta=0 */
         for v in 0..self.n {
             if self.mate[v] == NIL {
                 self.label[v] = EVEN;
@@ -301,7 +284,6 @@ impl GabowOptimized {
             }
 
             if found_sap {
-                /* Build H: contracted_into and mateH */
                 let tn: Vec<usize> = self.tree_nodes.clone();
                 for &v in &tn {
                     let db = self.find_dbase(v);
@@ -331,13 +313,6 @@ impl GabowOptimized {
         false
     }
 
-    /* ================================================================ */
-    /*                          PHASE 2                                 */
-    /* ================================================================ */
-
-    /* find_apHG: ITERATIVE DFS in H.
-     * Scans graph[v] for each G-vertex in contracted_into[vh].
-     * Returns the free H-node found, or NIL. */
     fn find_ap_hg(&mut self, root_vh: usize) -> i32 {
         struct Frame { vh: usize, ci_idx: usize, adj_idx: usize }
         let mut stk: Vec<Frame> = vec![Frame { vh: root_vh, ci_idx: 0, adj_idx: 0 }];
@@ -390,11 +365,7 @@ impl GabowOptimized {
                                 tmp.push(mc);
                                 let ps = self.parent_h_src[mc] as usize;
                                 let pt = self.parent_h_tgt[mc] as usize;
-                                let next = if self.rep[ps] == mc {
-                                    self.rep[pt]
-                                } else {
-                                    self.rep[ps]
-                                };
+                                let next = if self.rep[ps] == mc { self.rep[pt] } else { self.rep[ps] };
                                 cur = self.find_db2(next);
                             }
                             for &nd in &endpoints { self.union_db2(nd, bh); }
@@ -419,7 +390,6 @@ impl GabowOptimized {
         NIL
     }
 
-    /* trace_h_path: iterative, collects non-matching G-edges along H-path */
     fn trace_h_path(&mut self, start_vh: usize, start_uh: usize,
                     edges_out: &mut Vec<(usize, usize)>) {
         struct Frame { vh: usize, uh: usize, phase: i32, bs: usize, bt: usize,
@@ -466,7 +436,6 @@ impl GabowOptimized {
         }
     }
 
-    /* find_path_in_g: iterative unfold within single H-node */
     fn find_path_in_g(&mut self, start_v: usize, start_u: usize,
                       pairs: &mut Vec<(usize, usize)>) {
         struct Frame { v: usize, u: usize, phase: i32, sb: usize, tb: usize }
@@ -499,7 +468,6 @@ impl GabowOptimized {
         }
     }
 
-    /* augment_g: unfold H-edges to G and augment */
     fn augment_g(&mut self, h_edges: &[(usize, usize)]) {
         let mut pairs: Vec<(usize, usize)> = Vec::new();
         for &(u, v) in h_edges {
@@ -515,7 +483,6 @@ impl GabowOptimized {
         }
     }
 
-    /* phase_2: find all SAPs in H, unfold and augment */
     fn phase_2(&mut self) {
         let tn: Vec<usize> = self.tree_nodes.clone();
         for &v in &tn {
@@ -545,11 +512,7 @@ impl GabowOptimized {
                 let ps = self.parent_h_src[free_node] as usize;
                 let pt = self.parent_h_tgt[free_node] as usize;
                 h_nm.push((ps, pt));
-                let next = if self.rep[ps] == free_node {
-                    self.rep[pt]
-                } else {
-                    self.rep[ps]
-                };
+                let next = if self.rep[ps] == free_node { self.rep[pt] } else { self.rep[ps] };
                 self.trace_h_path(next, vh, &mut h_nm);
                 all_paths.push(h_nm);
             }
@@ -557,7 +520,6 @@ impl GabowOptimized {
 
         for path in &all_paths { self.augment_g(path); }
 
-        /* Clean up */
         for &v in &tn {
             let db = self.find_dbase(v);
             self.contracted_into[db].clear();
@@ -566,64 +528,18 @@ impl GabowOptimized {
         }
     }
 
-    /* ================================================================ */
-    /*                      MAIN ENTRY POINT                            */
-    /* ================================================================ */
-
-    fn greedy_init(&mut self) -> usize {
-        let mut cnt: usize = 0;
+    fn maximum_matching(&mut self) -> Vec<(usize, usize)> {
         for u in 0..self.n {
             if self.mate[u] != NIL { continue; }
             let neighbors: Vec<usize> = self.graph[u].clone();
-            for &v in &neighbors {
+            for v in neighbors {
                 if self.mate[v] == NIL {
                     self.mate[u] = v as i32;
                     self.mate[v] = u as i32;
-                    cnt += 1;
                     break;
                 }
             }
         }
-        cnt
-    }
-
-    /* Min-degree greedy: match each exposed vertex with its lowest-degree unmatched neighbor */
-    fn greedy_init_md(&mut self) -> usize {
-        let mut cnt: usize = 0;
-        let mut deg = vec![0usize; self.n];
-        for u in 0..self.n {
-            for &v in &self.graph[u] {
-                deg[v] += 1;
-            }
-        }
-        let mut order: Vec<usize> = (0..self.n).collect();
-        order.sort_unstable_by(|&a, &b| deg[a].cmp(&deg[b]).then(a.cmp(&b)));
-        for u in order {
-            if self.mate[u] != NIL { continue; }
-            let mut best: i32 = -1;
-            let mut best_deg = usize::MAX;
-            let neighbors: Vec<usize> = self.graph[u].clone();
-            for &v in &neighbors {
-                if self.mate[v] == NIL && deg[v] < best_deg {
-                    best = v as i32;
-                    best_deg = deg[v];
-                }
-            }
-            if best >= 0 {
-                self.mate[u] = best;
-                self.mate[best as usize] = u as i32;
-                cnt += 1;
-            }
-        }
-        cnt
-    }
-
-    fn maximum_matching(&mut self, greedy_mode: i32) -> Vec<(usize, usize)> {
-        self.greedy_size = match greedy_mode {
-            1 => self.greedy_init(),
-            2 => self.greedy_init_md(),
-            _ => 0,
-        };
         while self.phase_1() { self.phase_2(); }
 
         let mut result = Vec::new();
@@ -636,10 +552,6 @@ impl GabowOptimized {
         result
     }
 }
-
-/* ================================================================ */
-/*                    VALIDATION AND MAIN                            */
-/* ================================================================ */
 
 fn validate_matching(n: usize, graph: &[Vec<usize>], matching: &[(usize, usize)]) {
     let mut deg = vec![0i32; n];
@@ -689,27 +601,19 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <filename> [--greedy|--greedy-md]", args[0]);
+        eprintln!("Usage: {} <filename>", args[0]);
         std::process::exit(1);
     }
 
-    let greedy_mode: i32 = if args.iter().any(|a| a == "--greedy-md") { 2 } else if args.iter().any(|a| a == "--greedy") { 1 } else { 0 };
     match load_graph(&args[1]) {
         Ok((n, edges)) => {
             println!("Graph: {} vertices, {} edges", n, edges.len());
             let start = Instant::now();
             let mut gabow = GabowOptimized::new(n, &edges);
-            let matching = gabow.maximum_matching(greedy_mode);
+            let matching = gabow.maximum_matching();
             let duration = start.elapsed();
             validate_matching(n, &gabow.graph, &matching);
             println!("Matching size: {}", matching.len());
-            if greedy_mode > 0 {
-                let gs = gabow.greedy_size;
-                let fs = matching.len();
-                println!("Greedy init size: {}", gs);
-                if fs > 0 { println!("Greedy/Final: {:.2}%", 100.0 * gs as f64 / fs as f64); }
-                else { println!("Greedy/Final: NA"); }
-            }
             println!("Time: {} ms", duration.as_millis());
         }
         Err(e) => {

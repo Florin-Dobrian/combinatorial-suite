@@ -1,5 +1,5 @@
 """
-Micali-Vazirani Pure Algorithm - O(E√V) Maximum Matching
+Micali-Vazirani Pure Algorithm - O(EâˆšV) Maximum Matching
 
 True MV with DDFS, tenacity, regular + hanging bridges, petal contraction.
 Faithful port of C++ micali_vazirani_pure.cpp.
@@ -100,7 +100,7 @@ class DDFSResult:
 
 
 # =========================================================================
-# MVGraph — the full algorithm
+# MVGraph â€” the full algorithm
 # =========================================================================
 class MVGraph:
     def __init__(self):
@@ -138,8 +138,11 @@ class MVGraph:
             self.edges.extend(adj[i])
 
     # ---- greedy initialization ----
+    greedy_size = 0
+
     def greedy_init(self):
         n = len(self.nodes)
+        cnt = 0
         for j in range(n):
             if self.nodes[j].match == NIL:
                 for k in range(self.deg[j]):
@@ -148,7 +151,29 @@ class MVGraph:
                         self.nodes[j].match = i
                         self.nodes[i].match = j
                         self.matchnum += 1
+                        cnt += 1
                         break
+        return cnt
+
+    def greedy_init_md(self):
+        n = len(self.nodes)
+        cnt = 0
+        order = sorted(range(n), key=lambda x: (self.deg[x], x))
+        for j in order:
+            if self.nodes[j].match == NIL:
+                best = NIL
+                best_deg = float('inf')
+                for k in range(self.deg[j]):
+                    i = self.edges[self.adj_start[j] + k]
+                    if self.nodes[i].match == NIL and self.deg[i] < best_deg:
+                        best = i
+                        best_deg = self.deg[i]
+                if best != NIL:
+                    self.nodes[j].match = best
+                    self.nodes[best].match = j
+                    self.matchnum += 1
+                    cnt += 1
+        return cnt
 
     # ---- helpers ----
     def add_to_level(self, level, node):
@@ -279,7 +304,7 @@ class MVGraph:
         return found
 
     # ==================================================================
-    # DDFS — Double Depth-First Search
+    # DDFS â€” Double Depth-First Search
     # ==================================================================
 
     def add_pred_to_stack(self, cur, stack):
@@ -606,8 +631,15 @@ def main():
     print()
 
     if len(sys.argv) < 2:
-        print(f"Usage: python {sys.argv[0]} <filename>")
+        print(f"Usage: python {sys.argv[0]} <filename> [--greedy|--greedy-md]")
         sys.exit(1)
+
+    greedy_mode = 0
+    for arg in sys.argv[2:]:
+        if arg == "--greedy":
+            greedy_mode = 1
+        elif arg == "--greedy-md":
+            greedy_mode = 2
 
     n, edge_list = load_graph(sys.argv[1])
     print(f"Graph: {n} vertices, {len(edge_list)} edges")
@@ -615,7 +647,10 @@ def main():
     t0 = time.time()
     mv = MVGraph()
     mv.build(n, edge_list)
-    mv.greedy_init()
+    if greedy_mode == 1:
+        mv.greedy_size = mv.greedy_init()
+    elif greedy_mode == 2:
+        mv.greedy_size = mv.greedy_init_md()
     mv.max_match()
     t1 = time.time()
 
@@ -624,6 +659,12 @@ def main():
     validate_matching(n, mv.edges, mv.adj_start, mv.deg, matching)
 
     print(f"Matching size: {len(matching)}")
+    if greedy_mode > 0:
+        print(f"Greedy init size: {mv.greedy_size}")
+        if matching:
+            print(f"Greedy/Final: {100.0 * mv.greedy_size / len(matching):.2f}%")
+        else:
+            print("Greedy/Final: NA")
     print(f"Time: {int((t1 - t0) * 1000)} ms")
 
 

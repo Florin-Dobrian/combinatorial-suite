@@ -56,7 +56,7 @@ Maximum cardinality matching in general graphs in O(V²E) time.
 See the [Edmonds' Blossom Simple README](algorithms/edmonds-blossom-simple/edmonds_blossom_simple_README.md) for algorithm details, blossom contraction, and usage examples.
 
 ### Edmonds' Blossom Algorithm (Optimized)
-Maximum cardinality matching in general graphs in O(VÂ²E) time.
+Maximum cardinality matching in general graphs in O(VE) time.
 
 **Location**: `algorithms/edmonds-blossom-optimized/`
 
@@ -278,7 +278,7 @@ chmod +x benchmark.sh
 - C++: ~384 ms
 - Rust: ~367 ms
 
-**Edmonds Blossom Optimized** O(VÂ²E):
+**Edmonds Blossom Optimized** O(VE):
 - Python: ~12,616 ms (12.6 seconds)
 - C++: ~383 ms
 - Rust: ~361 ms
@@ -303,7 +303,7 @@ chmod +x benchmark.sh
 | Algorithm | Complexity | Python Time | C++ Time | Rust Time | Speedup vs Edmonds Simple (C++) |
 |-----------|-----------|-------------|----------|-----------|--------------------------------|
 | Edmonds Simple | O(V²E) | 12.6 sec | 384 ms | 367 ms | 1.0× |
-| Edmonds Optimized | O(VÂ²E) | 12.6 sec | 383 ms | 361 ms | 1.0× |
+| Edmonds Optimized | O(VE) | 12.6 sec | 383 ms | 361 ms | 1.0× |
 | Gabow Simple | O(VE) | 5.1 sec | 216 ms | 241 ms | 1.8× |
 | Gabow Optimized | O(√VE) | 88 ms | 14 ms | 17 ms | 27.4× |
 | Micali-Vazirani | O(√VE) | 56 ms | 3 ms | 3 ms | 142× |

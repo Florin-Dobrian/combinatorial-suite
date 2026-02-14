@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is the **O(VÂ²E) optimized implementation** of Edmonds' Blossom algorithm for maximum cardinality matching in general graphs.
+This is the **O(VE) optimized implementation** of Edmonds' Blossom algorithm for maximum cardinality matching in general graphs.
 
 Significantly faster than the simple O(V²E) version for large graphs.
 
@@ -28,7 +28,7 @@ Significantly faster than the simple O(V²E) version for large graphs.
 | Version | Complexity | Graph Size |
 |---------|-----------|------------|
 | Simple | O(V²E) | Good for <100 vertices |
-| Optimized | O(VÂ²E) | Good for all sizes |
+| Optimized | O(VE) | Good for all sizes |
 
 **Practical speedup**: 5-10× faster on graphs with 1000+ vertices
 
@@ -182,7 +182,7 @@ The optimized version uses:
 - **Base tracking**: Path compression for fast blossom base lookups
 - **Incremental updates**: Only update affected vertices during blossom contraction
 
-This reduces per-path complexity from O(VÂ³) to O(VE), giving overall O(VÂ²E).
+This reduces per-path complexity from O(V³) to O(VE), giving overall O(VE).
 
 ## See Also
 

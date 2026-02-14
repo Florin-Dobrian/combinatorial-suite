@@ -171,11 +171,6 @@ combinatorial-suite/
 │   │   ├── python/gabow_optimized.py
 │   │   ├── cpp/gabow_optimized.cpp
 │   │   └── rust/gabow_optimized.rs
-│   ├── micali-vazirani/
-│   │   ├── micali_vazirani_README.md    # Algorithm-specific documentation
-│   │   ├── python/micali_vazirani.py
-│   │   ├── cpp/micali_vazirani.cpp
-│   │   └── rust/micali_vazirani.rs
 │   └── micali-vazirani-pure/
 │       ├── micali_vazirani_pure_README.md  # Algorithm-specific documentation
 │       ├── python/micali_vazirani_pure.py

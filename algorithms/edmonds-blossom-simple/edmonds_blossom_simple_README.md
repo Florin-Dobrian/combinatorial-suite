@@ -152,11 +152,11 @@ Execution time: 367 ms
 ## Complexity
 
 ### Simple Version
-- **Time**: O(V⁴) 
+- **Time**: O(V²E) 
 - **Space**: O(V + E)
 
 ### Optimized Version
-- **Time**: O(V²E) - see `edmonds_blossom_optimized`
+- **Time**: O(VÂ²E) - see `edmonds_blossom_optimized`
 - **Space**: O(V + E)
 
 ## Performance
@@ -169,7 +169,7 @@ Test: 10,000 vertices, 24,907 edges
 | C++ | ~384 ms | ~33x |
 | Rust | ~367 ms | ~34x |
 
-**Note**: For large graphs (>1000 vertices), use the optimized version (O(V²E)) or Gabow/Micali-Vazirani (O(√VE)) for significantly better performance.
+**Note**: For large graphs (>1000 vertices), use the optimized version (O(VÂ²E)) or Gabow/Micali-Vazirani (O(√VE)) for significantly better performance.
 
 ## When to Use
 
@@ -180,17 +180,17 @@ Test: 10,000 vertices, 24,907 edges
 
 **Use Hopcroft-Karp instead when:**
 - Graph is bipartite (only even cycles)
-- Much faster: O(√VE) vs O(V⁴)
+- Much faster: O(√VE) vs O(V²E)
 
 ## Comparison
 
 | Algorithm | Complexity | Graph Type |
 |-----------|-----------|------------|
 | Hopcroft-Karp | O(√VE) | Bipartite only |
-| Edmonds Simple | O(V⁴) | General graphs |
-| Edmonds Optimized | O(V²E) | General graphs |
+| Edmonds Simple | O(V²E) | General graphs |
+| Edmonds Optimized | O(VÂ²E) | General graphs |
 
 ## See Also
 
-- `edmonds_blossom_optimized` for O(V²E) version (faster for large graphs)
+- `edmonds_blossom_optimized` for O(VÂ²E) version (faster for large graphs)
 - `hopcroft_karp` for bipartite graphs (much faster)

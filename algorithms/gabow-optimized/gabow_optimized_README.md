@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is an implementation of **Gabow's 1976 scaling algorithm** for finding maximum cardinality matchings in general (non-bipartite) graphs. The algorithm achieves **O(√VE)** time complexity, which is asymptotically optimal for dense graphs and matches the complexity of the Micali-Vazirani algorithm.
+This is an implementation of **Gabow's 1985 scaling algorithm** for finding maximum cardinality matchings in general (non-bipartite) graphs. The algorithm achieves **O(√VE)** time complexity, which is asymptotically optimal for dense graphs and matches the complexity of the Micali-Vazirani algorithm.
 
 ## Algorithm Description
 
@@ -59,9 +59,9 @@ Tested on a sparse graph with 10,000 vertices and 24,907 edges:
 
 | Implementation | Time | Matching Size | Speedup vs O(VE) |
 |----------------|------|---------------|------------------|
-| C++        | 14ms | 4962/4962 ✓   | 16.6x        |
-| Rust       | 17ms | 4962/4962 ✓   | 13.6x        |
-| Python     | 88ms | 4962/4962 ✓   | 59x          |
+| C++        | 14ms | 4962/4962 ✔   | 16.6x        |
+| Rust       | 17ms | 4962/4962 ✔   | 13.6x        |
+| Python     | 88ms | 4962/4962 ✔   | 59x          |
 
 Comparison with Gabow Simple O(VE):
 - Gabow Simple (C++): 232ms
@@ -119,8 +119,8 @@ All implementations are fully deterministic:
 - **In practice:** Gabow is often preferred due to implementation simplicity
 
 ### vs. Edmonds' Blossom
-- **Edmonds Simple:** O(V⁴) - very slow for large graphs
-- **Edmonds Optimized:** O(V²E) - still slower than Gabow for sparse graphs
+- **Edmonds Simple:** O(V²E) - very slow for large graphs
+- **Edmonds Optimized:** O(VÂ²E) - still slower than Gabow for sparse graphs
 - **Gabow advantage:** Better complexity for sparse graphs where E = O(V)
 - **Use Edmonds when:** Graph is very dense and you need a simpler implementation
 
@@ -140,8 +140,8 @@ All implementations are fully deterministic:
 - Introduced path compression for blossom bases
 - This is our "Gabow Simple" implementation
 
-**1983 - Scaling O(√VE) Algorithm:**
-- Published as part of general weighted matching work
+**1985 - Scaling O(√VE) Algorithm:**
+- Published in *Journal of Computer and System Sciences*, 31(2), 136–168
 - Extended Hopcroft-Karp's phase-based approach to general graphs
 - Achieves same complexity as Micali-Vazirani (1980)
 - Considered more implementable than Micali-Vazirani
@@ -252,21 +252,21 @@ Where:
 ### ✅ Use Gabow Optimized When:
 - Graph is **general** (not known to be bipartite)
 - Graph is **large** (>1000 vertices)
-- Graph is **sparse to moderate density** (E = O(V) to O(V²))
+- Graph is **sparse to moderate density** (E = O(V) to O(VÂ²))
 - You need **optimal performance** for maximum cardinality matching
 - You want **deterministic** results
 
 ### ❌ Don't Use When:
 - Graph is **bipartite** → Use Hopcroft-Karp instead (simpler)
 - Graph is **very small** (<100 vertices) → Use Gabow Simple (less overhead)
-- Graph is **extremely dense** (E ≈ V²) → Use push-relabel flow algorithms
+- Graph is **extremely dense** (E ≈ VÂ²) → Use push-relabel flow algorithms
 - You need **weighted** matching → Use Gabow's weighted matching algorithm
 
 ## References
 
 1. **Gabow, H. N. (1976).** "An efficient implementation of Edmonds' algorithm for maximum matching on graphs." *Journal of the ACM*, 23(2), 221-234.
 
-2. **Gabow, H. N. (1983).** "An efficient reduction technique for degree-constrained subgraph and bidirected network flow problems." *Proceedings of the 15th Annual ACM STOC*, 448-456.
+2. **Gabow, H. N. (1985).** "A scaling algorithm for weighted matching on general graphs." *Proceedings of the 26th Annual IEEE Symposium on Foundations of Computer Science*, 90–100.
 
 3. **Micali, S., & Vazirani, V. V. (1980).** "An O(√V E) algorithm for finding maximum matching in general graphs." *Proceedings of the 21st Annual IEEE FOCS*, 17-27.
 
@@ -300,7 +300,7 @@ All implementations include:
 
 ## License
 
-This implementation is provided for educational and research purposes. The algorithm itself is from published academic work (Gabow 1976, 1983).
+This implementation is provided for educational and research purposes. The algorithm itself is from published academic work (Gabow 1985).
 
 ## Acknowledgments
 

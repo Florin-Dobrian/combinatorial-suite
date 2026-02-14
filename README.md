@@ -44,7 +44,7 @@ Maximum cardinality bipartite matching in O(√VE) time.
 See the [Hopcroft-Karp README](algorithms/hopcroft-karp/hopcroft_karp_README.md) for algorithm details, complexity analysis, and usage examples.
 
 ### Edmonds' Blossom Algorithm (Simple)
-Maximum cardinality matching in general graphs in O(V⁴) time.
+Maximum cardinality matching in general graphs in O(V²E) time.
 
 **Location**: `algorithms/edmonds-blossom-simple/`
 
@@ -56,7 +56,7 @@ Maximum cardinality matching in general graphs in O(V⁴) time.
 See the [Edmonds' Blossom Simple README](algorithms/edmonds-blossom-simple/edmonds_blossom_simple_README.md) for algorithm details, blossom contraction, and usage examples.
 
 ### Edmonds' Blossom Algorithm (Optimized)
-Maximum cardinality matching in general graphs in O(V²E) time.
+Maximum cardinality matching in general graphs in O(VÂ²E) time.
 
 **Location**: `algorithms/edmonds-blossom-optimized/`
 
@@ -115,33 +115,6 @@ Maximum cardinality matching in general graphs in **O(√VE)** time - theoretica
 See the [Gabow Optimized README](algorithms/gabow-optimized/gabow_optimized_README.md) for detailed complexity analysis, LEDA-based approach, and performance comparisons.
 
 ### Micali-Vazirani Algorithm
-Maximum cardinality matching in general graphs in **O(√VE)** time - theoretically optimal!
-
-**Location**: `algorithms/micali-vazirani/`
-
-**Implementations**:
-- Python (clean, readable)
-- C++ (optimized with -O3)
-- Rust (memory-safe, high-performance)
-
-**Performance**: Matches Gabow Optimized performance with 100% correctness.
-
-**Key Features**:
-- First algorithm to achieve O(√VE) for general graphs (1980)
-- Hybrid approach combining MV's level building with Gabow's path finding
-- Sophisticated even/odd level tracking
-- Handles blossoms efficiently
-
-**Benchmarks** (10,000 vertices, 24,907 edges):
-- C++: 14ms (same as Gabow Optimized)
-- Rust: 17ms (same as Gabow Optimized)
-- Python: 80ms (slightly faster than Gabow Optimized)
-
-**Result:** 4962/4962 edges (100% optimal) ✓
-
-See the [Micali-Vazirani README](algorithms/micali-vazirani/micali_vazirani_README.md) for algorithm details, complexity analysis, and comparison with other O(√VE) approaches.
-
-### Micali-Vazirani Algorithm (Pure)
 Maximum cardinality matching in general graphs in **O(√VE)** time — faithful implementation of the original algorithm.
 
 **Location**: `algorithms/micali-vazirani-pure/`
@@ -151,21 +124,21 @@ Maximum cardinality matching in general graphs in **O(√VE)** time — faithful
 - C++ (optimized with -O3)
 - Rust (memory-safe, high-performance)
 
-**Performance**: The fastest algorithm in the suite — roughly 2× faster than the hybrid MV.
+**Performance**: The fastest algorithm in the suite.
 
 **Key Features**:
+- First algorithm to achieve O(√VE) for general graphs (1980)
 - Full original MV machinery: DDFS, tenacity, regular + hanging bridges, petal contraction
 - Faithful to the 1980 Micali-Vazirani paper and Vazirani's 1994 correctness proof
-- Ported from production-quality Jorants MV-Matching-V2 codebase
 
 **Benchmarks** (10,000 vertices, 24,907 edges):
 - C++: 3ms (fastest in suite)
 - Rust: 3ms (fastest in suite)
 - Python: 56ms
 
-**Result:** 4962/4962 edges (100% optimal) ✓
+**Result:** 4962/4962 edges (100% optimal) ✔
 
-See the [Micali-Vazirani Pure README](algorithms/micali-vazirani-pure/micali_vazirani_pure_README.md) for algorithm details, DDFS mechanism, and comparison with the hybrid version.
+See the [Micali-Vazirani README](algorithms/micali-vazirani-pure/micali_vazirani_pure_README.md) for algorithm details, DDFS mechanism, and complexity analysis.
 
 ## Project Structure
 
@@ -199,15 +172,15 @@ combinatorial-suite/
 │   │   ├── cpp/gabow_optimized.cpp
 │   │   └── rust/gabow_optimized.rs
 │   ├── micali-vazirani/
-│       │   ├── micali_vazirani_README.md    # Algorithm-specific documentation
-│       │   ├── python/micali_vazirani.py
-│       │   ├── cpp/micali_vazirani.cpp
-│       │   └── rust/micali_vazirani.rs
-│       └── micali-vazirani-pure/
-│           ├── micali_vazirani_pure_README.md  # Algorithm-specific documentation
-│           ├── python/micali_vazirani_pure.py
-│           ├── cpp/micali_vazirani_pure.cpp
-│           └── rust/micali_vazirani_pure.rs
+│   │   ├── micali_vazirani_README.md    # Algorithm-specific documentation
+│   │   ├── python/micali_vazirani.py
+│   │   ├── cpp/micali_vazirani.cpp
+│   │   └── rust/micali_vazirani.rs
+│   └── micali-vazirani-pure/
+│       ├── micali_vazirani_pure_README.md  # Algorithm-specific documentation
+│       ├── python/micali_vazirani_pure.py
+│       ├── cpp/micali_vazirani_pure.cpp
+│       └── rust/micali_vazirani_pure.rs
 ├── benchmarks/
 │   └── benchmark.sh                     # Cross-language performance testing
 └── data/                                # Test data and datasets
@@ -276,12 +249,7 @@ cd algorithms/gabow-optimized/cpp/
 g++ -O3 -std=c++17 gabow_optimized.cpp -o gabow_optimized_cpp
 ./gabow_optimized_cpp ../../../data/general-unweighted/large/general_unweighted_sparse_10000.txt
 
-# Micali-Vazirani (O(√VE) - theoretically optimal!) on general graph
-cd algorithms/micali-vazirani/cpp/
-g++ -O3 -std=c++17 micali_vazirani.cpp -o micali_vazirani_cpp
-./micali_vazirani_cpp ../../../data/general-unweighted/large/general_unweighted_sparse_10000.txt
-
-# Micali-Vazirani Pure (O(√VE) - fastest in suite!) on general graph
+# Micali-Vazirani (O(√VE) - fastest in suite!) on general graph
 cd algorithms/micali-vazirani-pure/cpp/
 g++ -O3 -std=c++17 micali_vazirani_pure.cpp -o micali_vazirani_pure_cpp
 ./micali_vazirani_pure_cpp ../../../data/general-unweighted/large/general_unweighted_sparse_10000.txt
@@ -310,12 +278,12 @@ chmod +x benchmark.sh
 
 ### General Graph Matching
 
-**Edmonds Blossom Simple** O(V⁴):
+**Edmonds Blossom Simple** O(V²E):
 - Python: ~12,648 ms (12.6 seconds)
 - C++: ~384 ms
 - Rust: ~367 ms
 
-**Edmonds Blossom Optimized** O(V²E):
+**Edmonds Blossom Optimized** O(VÂ²E):
 - Python: ~12,616 ms (12.6 seconds)
 - C++: ~383 ms
 - Rust: ~361 ms
@@ -331,11 +299,6 @@ chmod +x benchmark.sh
 - Rust: ~17 ms (14.2× faster than Gabow Simple!)
 
 **Micali-Vazirani** O(√VE):
-- Python: ~80 ms (63× faster than Gabow Simple!)
-- C++: ~14 ms (15.4× faster than Gabow Simple!)
-- Rust: ~17 ms (14.2× faster than Gabow Simple!)
-
-**Micali-Vazirani Pure** O(√VE):
 - Python: ~56 ms (fastest Python in suite!)
 - C++: ~3 ms (fastest in suite!)
 - Rust: ~3 ms (fastest in suite!)
@@ -344,16 +307,15 @@ chmod +x benchmark.sh
 
 | Algorithm | Complexity | Python Time | C++ Time | Rust Time | Speedup vs Edmonds Simple (C++) |
 |-----------|-----------|-------------|----------|-----------|--------------------------------|
-| Edmonds Simple | O(V⁴) | 12.6 sec | 384 ms | 367 ms | 1.0× |
-| Edmonds Optimized | O(V²E) | 12.6 sec | 383 ms | 361 ms | 1.0× |
+| Edmonds Simple | O(V²E) | 12.6 sec | 384 ms | 367 ms | 1.0× |
+| Edmonds Optimized | O(VÂ²E) | 12.6 sec | 383 ms | 361 ms | 1.0× |
 | Gabow Simple | O(VE) | 5.1 sec | 216 ms | 241 ms | 1.8× |
 | Gabow Optimized | O(√VE) | 88 ms | 14 ms | 17 ms | 27.4× |
-| Micali-Vazirani | O(√VE) | 80 ms | 14 ms | 17 ms | 27.4× |
-| Micali-Vazirani Pure | O(√VE) | 56 ms | 3 ms | 3 ms | 142× |
+| Micali-Vazirani | O(√VE) | 56 ms | 3 ms | 3 ms | 142× |
 
 **Key Insights:**
 - All O(√VE) algorithms achieve 100% correctness (4962/4962 edges)
-- Micali-Vazirani Pure is the fastest implementation: 3ms in C++/Rust
+- Micali-Vazirani is the fastest implementation: 3ms in C++/Rust
 - O(√VE) algorithms are ~27–142× faster than O(V²E) depending on implementation
 - For this sparse graph, Edmonds Simple and Optimized have similar performance
 - Python is 5-6× slower than C++/Rust for complex algorithms

@@ -190,9 +190,9 @@ Time: 3 ms
 
 | Algorithm | Time (C++) | Correctness |
 |-----------|-----------|-------------|
-| Gabow Optimized | 7ms | 4962/4962 ✓ |
-| Micali-Vazirani (Hybrid) | 7ms | 4962/4962 ✓ |
-| Micali-Vazirani (Pure) | 3ms | 4962/4962 ✓ |
+| Gabow Optimized | 7ms | 4962/4962 ✔ |
+| Micali-Vazirani (Hybrid) | 7ms | 4962/4962 ✔ |
+| Micali-Vazirani (Pure) | 3ms | 4962/4962 ✔ |
 
 The pure MV is the fastest algorithm in the suite — roughly 2× faster than the hybrid MV and Gabow Optimized on this benchmark.
 
@@ -241,5 +241,5 @@ This implementation is ported from the production-quality Jorants MV-Matching-V2
 
 - `micali-vazirani` for the hybrid O(√VE) version (simpler, shorter code)
 - `gabow-optimized` for Gabow's O(√VE) approach (different algorithm, same complexity)
-- `edmonds-blossom-optimized` for O(V²E) version (simpler, still good for moderate graphs)
+- `edmonds-blossom-optimized` for O(VÂ²E) version (simpler, still good for moderate graphs)
 - `hopcroft-karp` for bipartite graphs (simpler when applicable)

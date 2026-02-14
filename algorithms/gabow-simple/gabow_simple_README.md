@@ -7,7 +7,7 @@ This directory contains implementations of Harold N. Gabow's maximum cardinality
 Gabow developed two key algorithms for maximum matching in general graphs:
 
 1. **Gabow Simple (1976)**: O(VE) - A simplified, more implementable version of Edmonds' Blossom algorithm
-2. **Gabow Optimized (1983)**: O(√VE) - A scaling/phased approach that achieves the same theoretical bound as Micali-Vazirani
+2. **Gabow Optimized (1985)**: O(√VE) - A scaling/phased approach that achieves the same theoretical bound as Micali-Vazirani
 
 ## Algorithms
 
@@ -74,9 +74,9 @@ while phase_1():  # Build level structure, detect blossoms
 **Gabow 1976:** Published "An Efficient Implementation of Edmonds' Algorithm for Maximum Matching on Graphs"
 - Simplified Edmonds' blossom algorithm
 - Made it more practical to implement
-- O(VE) complexity (improved from O(V⁴))
+- O(VE) complexity (improved from O(V²E))
 
-**Gabow 1983:** Published "An O(EV log V) Algorithm for Maximum Matching in General Graphs"  
+**Gabow 1985:** Published "A scaling algorithm for weighted matching on general graphs"  
 - Scaling/phased approach
 - O(√VE) complexity (matching Micali-Vazirani 1980)
 - More implementable than Micali-Vazirani in practice
@@ -303,7 +303,7 @@ Time: X ms
 
 1. Gabow, H. N. (1976). "An efficient implementation of Edmonds' algorithm for maximum matching on graphs." *Journal of the ACM*, 23(2), 221-234.
 
-2. Gabow, H. N. (1983). "An O(EV log V) algorithm for maximum matching in general graphs." *Proceedings of the 24th Annual Symposium on Foundations of Computer Science*, 247-254.
+2. Gabow, H. N. (1985). "A scaling algorithm for weighted matching on general graphs." *Proceedings of the 26th Annual IEEE Symposium on Foundations of Computer Science*, 90–100.
 
 3. Mehlhorn, K., & Näher, S. (1999). *LEDA: A Platform for Combinatorial and Geometric Computing*. Cambridge University Press.
 
@@ -313,7 +313,7 @@ Time: X ms
 
 This repository also includes:
 - **Hopcroft-Karp** (O(√VE) for bipartite graphs)
-- **Edmonds' Blossom** (O(V²E) and O(V³) variants)
+- **Edmonds' Blossom** (O(VÂ²E) and O(VÂ³) variants)
 - **Micali-Vazirani** (O(√VE) for general graphs - research implementation)
 
 ## Credits

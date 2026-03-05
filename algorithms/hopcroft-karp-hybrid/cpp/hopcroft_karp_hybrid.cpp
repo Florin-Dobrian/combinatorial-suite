@@ -1,8 +1,13 @@
 /*
- * Hopcroft-Karp Algorithm - O(EÃ¢Ë†Å¡V) Maximum Bipartite Matching
+ * Hopcroft-Karp Hybrid Algorithm - O(E√V) Maximum Bipartite Matching
  *
- * BFS to find shortest augmenting path length, then DFS to find
- * all vertex-disjoint augmenting paths of that length.
+ * Old HK's lean BFS (single dist[] array, sentinel trick, no status enums)
+ * + iterative stack-based DFS with edge index array (no recursion, no rescan).
+ *
+ * This is a minimal change from the original HK: only the recursive dfs()
+ * is replaced. Everything else (BFS, greedy, data structures) is identical.
+ *
+ * Input format: "L R M" header then M lines of "u v" edges (0-indexed).
  *
  * All integers, no hash containers, fully deterministic.
  */
@@ -17,7 +22,7 @@
 
 static const int NIL = -1;
 
-struct HopcroftKarp {
+struct HopcroftKarpHybrid {
     int left_count;
     int greedy_size = 0;
     int right_count;
@@ -26,21 +31,39 @@ struct HopcroftKarp {
     std::vector<int> pair_right;
     std::vector<int> dist;
 
-    HopcroftKarp(int lc, int rc, const std::vector<std::pair<int,int>>& edges)
-        : left_count(lc), right_count(rc) {
+    /* Edge index: resume position per left vertex (persistent within a phase) */
+    std::vector<int> edge_idx;
+
+    /* DFS stack: stk_u[i] is the left vertex at depth i,
+     *            stk_v[i] is the right vertex that stk_u[i] chose
+     *            (needed for augmentation on success). */
+    std::vector<int> stk_u;
+    std::vector<int> stk_v;
+    int stk_top;
+
+    HopcroftKarpHybrid(int lc, int rc, const std::vector<std::pair<int,int>>& edges)
+        : left_count(lc), right_count(rc), stk_top(0) {
         graph.resize(lc);
         for (auto& e : edges) {
             int u = e.first, v = e.second;
             if (u >= 0 && u < lc && v >= 0 && v < rc)
                 graph[u].push_back(v);
         }
-        for (int i = 0; i < lc; i++) { std::sort(graph[i].begin(), graph[i].end()); graph[i].erase(std::unique(graph[i].begin(), graph[i].end()), graph[i].end()); }
+        for (int i = 0; i < lc; i++) {
+            std::sort(graph[i].begin(), graph[i].end());
+            graph[i].erase(std::unique(graph[i].begin(), graph[i].end()),
+                           graph[i].end());
+        }
 
         pair_left.assign(lc, NIL);
         pair_right.assign(rc, NIL);
         dist.resize(lc + 1);
+        edge_idx.assign(lc, 0);
+        stk_u.resize(lc);
+        stk_v.resize(lc);
     }
 
+    /* BFS: identical to original HK */
     bool bfs() {
         std::vector<int> queue(left_count);
         int qh = 0, qt = 0;
@@ -66,23 +89,72 @@ struct HopcroftKarp {
         return dist[left_count] != INT_MAX;
     }
 
-    bool dfs(int u) {
-        if (u == NIL) return true;
-        for (int v : graph[u]) {
-            int pn = (pair_right[v] == NIL) ? left_count : pair_right[v];
-            if (dist[pn] == dist[u] + 1) {
-                if (dfs(pair_right[v])) {
-                    pair_right[v] = u;
-                    pair_left[u] = v;
+    /*
+     * DFS: iterative with edge index.
+     *
+     * The stack represents the alternating path being explored:
+     *   stk_u[0] -> stk_v[0] -> stk_u[1] -> stk_v[1] -> ...
+     * where stk_u[0] is the root (free left vertex),
+     * stk_v[i] is the right vertex chosen by stk_u[i],
+     * and stk_u[i+1] = pair_right[stk_v[i]] (the matched partner).
+     *
+     * On success (stk_v[top] is free), augment by flipping all pairs
+     * along the stack.
+     *
+     * edge_idx[u] persists across DFS calls within a phase, so edges
+     * that led to dead ends are never revisited.
+     *
+     * dist[u] = INT_MAX marks u as a dead end (same as original HK).
+     */
+    bool dfs(int root) {
+        stk_top = 0;
+        stk_u[0] = root;
+        stk_top = 1;
+
+        while (stk_top > 0) {
+            int u = stk_u[stk_top - 1];
+            int sz = (int)graph[u].size();
+
+            /* Find next eligible edge from u */
+            bool pushed = false;
+            while (edge_idx[u] < sz) {
+                int v = graph[u][edge_idx[u]];
+                int pn = (pair_right[v] == NIL) ? left_count : pair_right[v];
+                if (dist[pn] != dist[u] + 1) {
+                    edge_idx[u]++;
+                    continue;
+                }
+
+                /* Record which v this u chose */
+                stk_v[stk_top - 1] = v;
+                edge_idx[u]++;
+
+                if (pair_right[v] == NIL) {
+                    /* Found augmenting path — augment all the way back */
+                    for (int d = stk_top - 1; d >= 0; d--) {
+                        pair_right[stk_v[d]] = stk_u[d];
+                        pair_left[stk_u[d]] = stk_v[d];
+                    }
                     return true;
                 }
+
+                /* Go deeper: push pair_right[v] */
+                stk_u[stk_top] = pair_right[v];
+                stk_top++;
+                pushed = true;
+                break;
+            }
+
+            if (!pushed) {
+                /* Dead end — mark and backtrack */
+                dist[u] = INT_MAX;
+                stk_top--;
             }
         }
-        dist[u] = INT_MAX;
         return false;
     }
 
-    /* Greedy initial matching: iterate left vertices, pick first available right neighbor */
+    /* Greedy: simple sequential */
     int greedy_init() {
         int cnt = 0;
         for (int u = 0; u < left_count; u++) {
@@ -94,7 +166,7 @@ struct HopcroftKarp {
         return cnt;
     }
 
-    /* Min-degree greedy: match each exposed left vertex with its lowest-degree unmatched right neighbor */
+    /* Greedy: min-degree */
     int greedy_init_md() {
         int cnt = 0;
         std::vector<int> deg(right_count, 0);
@@ -120,7 +192,6 @@ struct HopcroftKarp {
         return cnt;
     }
 
-
     std::vector<std::pair<int,int>> maximum_matching(int greedy_mode = 0) {
         int greedy_count = 0;
         if (greedy_mode == 1) greedy_count = greedy_init();
@@ -129,12 +200,15 @@ struct HopcroftKarp {
         int phases = 0;
         while (bfs()) {
             phases++;
+            /* Reset edge indices for this phase */
+            for (int u = 0; u < left_count; u++) edge_idx[u] = 0;
             for (int u = 0; u < left_count; u++) {
                 if (pair_left[u] == NIL) dfs(u);
             }
         }
 
         printf("Phases: %d\n", phases);
+
         std::vector<std::pair<int,int>> matching;
         for (int u = 0; u < left_count; u++) {
             if (pair_left[u] != NIL) matching.push_back({u, pair_left[u]});
@@ -175,8 +249,8 @@ void validate_matching(int lc, int rc, const std::vector<std::vector<int>>& grap
 }
 
 int main(int argc, char* argv[]) {
-    printf("Hopcroft-Karp Algorithm - C++ Implementation\n");
-    printf("==============================================\n\n");
+    printf("Hopcroft-Karp Hybrid Algorithm - C++ Implementation\n");
+    printf("=====================================================\n\n");
 
     if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
     int greedy_mode = 0;
@@ -203,7 +277,7 @@ int main(int argc, char* argv[]) {
     printf("Graph: %d left, %d right, %d edges\n", lc, rc, (int)edges.size());
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    HopcroftKarp hk(lc, rc, edges);
+    HopcroftKarpHybrid hk(lc, rc, edges);
     auto matching = hk.maximum_matching(greedy_mode);
     auto t1 = std::chrono::high_resolution_clock::now();
 

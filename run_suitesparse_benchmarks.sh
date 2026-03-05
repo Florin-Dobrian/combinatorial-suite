@@ -298,7 +298,7 @@ echo ""
 
 mkdir -p "$OUTDIR/raw"
 CSV="$OUTDIR/results.csv"
-echo "algo,graph,lang,vertices,mode,matching_size,greedy_init_size,greedy_pct,median_ms,run1_ms,run2_ms,run3_ms,validation" > "$CSV"
+echo "algo,graph,lang,vertices,mode,matching_size,greedy_init_size,greedy_pct,phases,median_ms,run1_ms,run2_ms,run3_ms,validation" > "$CSV"
 
 job=0
 echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
@@ -340,6 +340,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     size="ERR"
     greedy_init="NA"
     greedy_pct="NA"
+    phases="NA"
     valid="NONE"
 
     run_i=0
@@ -352,12 +353,14 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             s="$(grep '^Matching size:' "$logfile" | tail -1 | awk '{print $3}')"
             gi="$(grep '^Greedy init size:' "$logfile" | awk '{print $4}')"
             gp="$(grep '^Greedy/Final:' "$logfile" | awk '{print $2}')"
+            ph="$(grep '^Phases:' "$logfile" | awk '{print $2}')"
             vl="$(grep 'VALIDATION' "$logfile" | head -1)"
 
             [ -n "$t" ] && times="$times $t" || times="$times ERR"
             [ -n "$s" ] && size="$s"
             [ -n "$gi" ] && greedy_init="$gi"
             [ -n "$gp" ] && greedy_pct="$gp"
+            [ -n "$ph" ] && phases="$ph"
 
             case "$vl" in
                 *PASSED*) valid="PASS" ;;
@@ -386,12 +389,12 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     [ -z "$t2" ] && t2="-"
     [ -z "$t3" ] && t3="-"
 
-    echo "$alg,$gname,$lang,$v,$greedy,$size,$greedy_init,$greedy_pct,$med,$t1,$t2,$t3,$valid" >> "$CSV"
+    echo "$alg,$gname,$lang,$v,$greedy,$size,$greedy_init,$greedy_pct,$phases,$med,$t1,$t2,$t3,$valid" >> "$CSV"
 
     if [ "$greedy" = "greedy" ] || [ "$greedy" = "greedy-md" ]; then
-        printf "size=%-8s median=%-8s %-6s greedy_init=%-8s (%s)\n" "$size" "${med}ms" "$valid" "$greedy_init" "$greedy_pct"
+        printf "size=%-8s median=%-8s %-6s greedy_init=%-8s (%s)  phases=%s\n" "$size" "${med}ms" "$valid" "$greedy_init" "$greedy_pct" "$phases"
     else
-        printf "size=%-8s median=%-8s %s\n" "$size" "${med}ms" "$valid"
+        printf "size=%-8s median=%-8s %-6s phases=%s\n" "$size" "${med}ms" "$valid" "$phases"
     fi
 done
 

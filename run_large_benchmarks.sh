@@ -47,7 +47,7 @@ F_MODE=""
 # Complexity: ve (O(VE)) | fast (O(E√V))
 
 ALL_GENERAL="edmonds-simple edmonds-opt gabow-simple gabow-opt mv-pure"
-ALL_BIPARTITE="hk"
+ALL_BIPARTITE="hk hk-hybrid hk-pure hk-pure-lkhd"
 ALL_ALGOS="$ALL_GENERAL $ALL_BIPARTITE"
 
 alg_dir() {
@@ -58,6 +58,9 @@ alg_dir() {
         gabow-opt)      echo "gabow-optimized" ;;
         mv-pure)        echo "micali-vazirani-pure" ;;
         hk)             echo "hopcroft-karp" ;;
+        hk-hybrid)      echo "hopcroft-karp-hybrid" ;;
+        hk-pure)        echo "hopcroft-karp-pure" ;;
+        hk-pure-lkhd)   echo "hopcroft-karp-pure" ;;
     esac
 }
 
@@ -69,13 +72,13 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|mv-pure|hk) echo "fast" ;;
+        gabow-opt|mv-pure|hk|hk-hybrid|hk-pure|hk-pure-lkhd) echo "fast" ;;
     esac
 }
 
 alg_type() {
     case "$1" in
-        hk) echo "bipartite" ;;
+        hk|hk-hybrid|hk-pure|hk-pure-lkhd) echo "bipartite" ;;
         *)  echo "general" ;;
     esac
 }
@@ -350,7 +353,7 @@ echo ""
 
 mkdir -p "$OUTDIR/raw"
 CSV="$OUTDIR/results.csv"
-echo "algo,graph,lang,vertices,mode,matching_size,greedy_init_size,greedy_pct,median_ms,run1_ms,run2_ms,run3_ms,validation" > "$CSV"
+echo "algo,graph,lang,vertices,mode,matching_size,greedy_init_size,greedy_pct,phases,median_ms,run1_ms,run2_ms,run3_ms,validation" > "$CSV"
 
 job=0
 echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
@@ -386,12 +389,14 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     extra_args=""
     [ "$greedy" = "greedy" ] && extra_args="--greedy"
     [ "$greedy" = "greedy-md" ] && extra_args="--greedy-md"
+    [ "$alg" = "hk-pure-lkhd" ] && extra_args="$extra_args --lkhd"
 
     # Run N times
     times=""
     size="ERR"
     greedy_init="NA"
     greedy_pct="NA"
+    phases="NA"
     valid="NONE"
     status="OK"
 
@@ -405,12 +410,14 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             s="$(grep '^Matching size:' "$logfile" | tail -1 | awk '{print $3}')"
             gi="$(grep '^Greedy init size:' "$logfile" | awk '{print $4}')"
             gp="$(grep '^Greedy/Final:' "$logfile" | awk '{print $2}')"
+            ph="$(grep '^Phases:' "$logfile" | awk '{print $2}')"
             vl="$(grep 'VALIDATION' "$logfile" | head -1)"
 
             [ -n "$t" ] && times="$times $t" || times="$times ERR"
             [ -n "$s" ] && size="$s"
             [ -n "$gi" ] && greedy_init="$gi"
             [ -n "$gp" ] && greedy_pct="$gp"
+            [ -n "$ph" ] && phases="$ph"
 
             case "$vl" in
                 *PASSED*) valid="PASS" ;;
@@ -440,12 +447,12 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     [ -z "$t2" ] && t2="-"
     [ -z "$t3" ] && t3="-"
 
-    echo "$alg,$gname,$lang,$v,$greedy,$size,$greedy_init,$greedy_pct,$med,$t1,$t2,$t3,$valid" >> "$CSV"
+    echo "$alg,$gname,$lang,$v,$greedy,$size,$greedy_init,$greedy_pct,$phases,$med,$t1,$t2,$t3,$valid" >> "$CSV"
 
     if [ "$greedy" = "greedy" ] || [ "$greedy" = "greedy-md" ]; then
-        printf "size=%-8s median=%-8s %-6s greedy_init=%-8s (%s)\n" "$size" "${med}ms" "$valid" "$greedy_init" "$greedy_pct"
+        printf "size=%-8s median=%-8s %-6s greedy_init=%-8s (%s)  phases=%s\n" "$size" "${med}ms" "$valid" "$greedy_init" "$greedy_pct" "$phases"
     else
-        printf "size=%-8s median=%-8s %s\n" "$size" "${med}ms" "$valid"
+        printf "size=%-8s median=%-8s %-6s phases=%s\n" "$size" "${med}ms" "$valid" "$phases"
     fi
 done
 

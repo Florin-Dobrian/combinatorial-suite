@@ -1,5 +1,5 @@
 /*
- * Micali-Vazirani Pure Algorithm - O(EâˆšV) Maximum Matching
+ * Micali-Vazirani Pure Algorithm - O(EÃ¢Ë†Å¡V) Maximum Matching
  *
  * True MV with DDFS, tenacity, regular + hanging bridges, petal contraction.
  * Ported from production Jorants MV-Matching-V2.
@@ -87,7 +87,7 @@ struct DDFSResult {
 };
 
 /* =========================================================================
- * MVGraph â€” the full algorithm
+ * MVGraph Ã¢â‚¬â€ the full algorithm
  * ========================================================================= */
 struct MVGraph {
     std::vector<Node> nodes;
@@ -319,7 +319,7 @@ struct MVGraph {
     }
 
     /* ==================================================================
-     * DDFS â€” Double Depth-First Search
+     * DDFS Ã¢â‚¬â€ Double Depth-First Search
      * ================================================================== */
 
     void add_pred_to_stack(int cur, std::vector<std::pair<int,int>>& stack) {
@@ -565,11 +565,15 @@ struct MVGraph {
                 nodes[i].set_min_level(0);
             }
         }
+        int phase_count = 0;
         bool found = max_match_phase();
+        if (found) phase_count++;
         while ((int)nodes.size() / 2 > matchnum && found) {
             reset();
             found = max_match_phase();
+            if (found) phase_count++;
         }
+        printf("Phases: %d\n", phase_count);
     }
 
     bool max_match_phase() {

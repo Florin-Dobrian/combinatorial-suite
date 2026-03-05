@@ -23,6 +23,7 @@
 #include <string>
 #include <climits>
 #include <chrono>
+#include <deque>
 
 static const int NIL = -1;
 static const int UNLABELED = 0;
@@ -59,6 +60,7 @@ struct GabowOptimized {
     std::vector<int> tree_nodes;
 
     int Delta;
+    std::vector<int> root;
 
     /* H construction: mark which edges are in H */
     /* For each tree vertex u, we mark edges to other dbase components */
@@ -117,6 +119,7 @@ struct GabowOptimized {
             graph[i].erase(std::unique(graph[i].begin(), graph[i].end()), graph[i].end());
         }
         level_queue.resize(n + 2);
+        root.assign(n, -1);
     }
 
     /* ---- union-find: base ---- */
@@ -198,8 +201,10 @@ struct GabowOptimized {
                 if (label[bw] == ODD) continue;
                 if (label[bw] == UNLABELED) {
                     level_queue[Delta + 1].push_back({mv, w});
+                            printf("  [BFS]   EVEN %d -> %d (UNLABELED) queued Delta=%d\n", mv, w, Delta+1);
                 } else if (label[bw] == EVEN) {
                     level_queue[Delta].push_back({mv, w});
+                            printf("  [BFS]   EVEN %d -> %d (EVEN) queued Delta=%d\n", mv, w, Delta);
                 }
             }
             v = find_base(parent[mv]);
@@ -220,6 +225,7 @@ struct GabowOptimized {
             base_par[i] = i;
             dbase_par[i] = i;
             label[i] = UNLABELED;
+            root[i] = -1;
             parent[i] = NIL;
             source_bridge[i] = NIL;
             target_bridge[i] = NIL;
@@ -231,15 +237,19 @@ struct GabowOptimized {
             if (mate[v] == NIL) {
                 label[v] = EVEN;
                 in_tree[v] = true;
+                root[v] = v;
+                printf("  [BFS] root %d EVEN, scanning neighbors\n", v);
                 tree_nodes.push_back(v);
                 for (int u : graph[v]) {
                     if (u == mate[v]) continue;
                     int bu = find_base(u);
                     if (label[bu] == ODD) continue;
                     if (label[bu] == UNLABELED)
-                        level_queue[1].push_back({v, u});  /* grows at Delta=1 */
+                        { level_queue[1].push_back({v, u});
+                        printf("  [BFS]   %d -> %d (UNLABELED, mate=%d) queued Delta=1\n", v, u, mate[u]); }
                     else if (label[bu] == EVEN)
-                        level_queue[0].push_back({v, u});  /* EVEN-EVEN at Delta=0 */
+                        { level_queue[0].push_back({v, u});
+                        printf("  [BFS]   %d -> %d (EVEN-EVEN) queued Delta=0\n", v, u); }
                 }
             }
         }
@@ -247,9 +257,10 @@ struct GabowOptimized {
         bool found_sap = false;
 
         while (Delta <= n) {
-            while (!level_queue[Delta].empty()) {
-                auto [z, u] = level_queue[Delta].back();
-                level_queue[Delta].pop_back();
+            int qi = 0;
+            while (qi < (int)level_queue[Delta].size()) {
+                auto [z, u] = level_queue[Delta][qi++];
+                printf("  [BFS] Delta=%d pop {%d,%d}\n", Delta, z, u);
 
                 int bz = find_base(z), bu = find_base(u);
                 if (label[bz] != EVEN) { std::swap(z, u); std::swap(bz, bu); }
@@ -263,6 +274,10 @@ struct GabowOptimized {
                     parent[mv] = u;
                     label[u] = ODD;
                     label[mv] = EVEN;
+                    root[u] = root[find_base(z)];
+                    root[mv] = root[u];
+                    printf("  [BFS]   GROW: %d --%d(ODD)==%d(EVEN) tree=%d\n", z, u, mv, root[mv]);
+                    printf("  [BFS]   labels:"); for(int _i=0;_i<n;_i++) printf(" %d=%s",_i,label[_i]==EVEN?"E":(label[_i]==ODD?"O":"-")); printf("\n");
                     in_tree[u] = true;
                     in_tree[mv] = true;
                     tree_nodes.push_back(u);
@@ -274,9 +289,11 @@ struct GabowOptimized {
                         int bw = find_base(w);
                         if (label[bw] == ODD) continue;
                         if (label[bw] == UNLABELED)
-                            level_queue[Delta + 1].push_back({mv, w});
+                            { level_queue[Delta + 1].push_back({mv, w});
+                            printf("  [BFS]   EVEN %d -> %d (UNLABELED) queued Delta=%d\n", mv, w, Delta+1); }
                         else if (label[bw] == EVEN)
-                            level_queue[Delta].push_back({mv, w});
+                            { level_queue[Delta].push_back({mv, w});
+                            printf("  [BFS]   EVEN %d -> %d (EVEN) queued Delta=%d\n", mv, w, Delta); }
                     }
 
                 } else if (label[bu] == EVEN) {
@@ -285,9 +302,12 @@ struct GabowOptimized {
                         /* Blossom â€” record the shrink edge as H-edge */
                         shrink_path(lca, z, u, dunions);
                         shrink_path(lca, u, z, dunions);
+                        printf("  [BFS]   BLOSSOM: %d--%d lca=%d\n", z, u, lca);
+                        printf("  [BFS]   bases:"); for(int _i=0;_i<n;_i++) if(label[_i]!=UNLABELED) printf(" %d->b%d",_i,find_base(_i)); printf("\n");
                     } else {
                         /* Augmenting path found */
                         found_sap = true;
+                        { int rz=find_base(z),ru=find_base(u); printf("  [BFS]   SAP: %d(tree=%d) -- %d(tree=%d)\n", z, (rz>=0&&rz<n)?root[rz]:-1, u, (ru>=0&&ru<n)?root[ru]:-1); }
                         /* DON'T break â€” continue all edges at this Delta */
                     }
                 }
@@ -312,6 +332,7 @@ struct GabowOptimized {
                         }
                     }
                 }
+                printf("  [BFS] phase_1 done, H constructed\n");
                 return true;
             }
 
@@ -322,6 +343,7 @@ struct GabowOptimized {
             }
             dunions.clear();
             Delta++;
+            printf("  [BFS] Delta -> %d\n", Delta);
         }
         return false;
     }
@@ -521,6 +543,7 @@ struct GabowOptimized {
 
     /* phase_2: find all SAPs in H, unfold and augment */
     void phase_2() {
+        printf("  [DFS] phase_2 start. H-nodes (rep=self, free=no mate):\n");
         for (int v : tree_nodes) {
             rep[v] = find_dbase(v);
             labelH[v] = UNLABELED;
@@ -531,6 +554,13 @@ struct GabowOptimized {
             dbase2_par[v] = v;
         }
         tH = 0;
+        for (int v : tree_nodes) {
+            if (v == rep[v]) {
+                printf("    H-node %d: {", v);
+                for (int u : tree_nodes) if (rep[u]==v) printf("%d,", u);
+                printf("} mateH=%d%s\n", mateH[v], (mateH[v]==NIL?" (FREE)":""));
+            }
+        }
 
         std::vector<std::vector<std::pair<int,int>>> all_paths;
 
@@ -538,21 +568,37 @@ struct GabowOptimized {
             if (vh != rep[vh]) continue;
             if (labelH[vh] != UNLABELED || mateH[vh] != NIL) continue;
 
+            printf("  [DFS] Start DFS from free H-node %d\n", vh);
             labelH[vh] = EVEN;
             even_timeH[vh] = tH++;
 
             int free_node = find_apHG(vh);
             if (free_node != NIL) {
+                printf("  [DFS]   Found path to free H-node %d\n", free_node);
                 std::vector<std::pair<int,int>> h_nm;
                 int ps = parentH_src[free_node], pt = parentH_tgt[free_node];
                 h_nm.push_back({ps, pt});
                 int next = rep[rep[ps] == free_node ? pt : ps];
                 trace_H_path(next, vh, h_nm);
+                printf("  [DFS]   H-path edges:");
+                for (auto& [a,b] : h_nm) printf(" (%d,%d)", a, b);
+                printf("\n");
                 all_paths.push_back(std::move(h_nm));
+            } else {
+                printf("  [DFS]   No path found from %d\n", vh);
             }
         }
 
+        printf("  [DFS] Augmenting %d paths:\n", (int)all_paths.size());
+        for (int pi = 0; pi < (int)all_paths.size(); pi++) {
+            printf("    path %d:", pi);
+            for (auto& [a,b] : all_paths[pi]) printf(" (%d,%d)", a, b);
+            printf("\n");
+        }
         for (auto& he : all_paths) augmentG(he);
+        printf("  [DFS] After augmentation:");
+        for (int u = 0; u < n; u++) if (mate[u]!=NIL && mate[u]>u) printf(" %d-%d", u, mate[u]);
+        printf("\n");
 
         /* Clean up */
         for (int v : tree_nodes) {

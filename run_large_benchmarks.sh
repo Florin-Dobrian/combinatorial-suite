@@ -46,7 +46,7 @@ F_MODE=""
 # Graph type: general | bipartite
 # Complexity: ve (O(VE)) | fast (O(E√V))
 
-ALL_GENERAL="edmonds-simple edmonds-opt gabow-simple gabow-opt mv-pure"
+ALL_GENERAL="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual mv-pure"
 ALL_BIPARTITE="hk hk-hybrid hk-pure hk-pure-lkhd"
 ALL_ALGOS="$ALL_GENERAL $ALL_BIPARTITE"
 
@@ -56,6 +56,7 @@ alg_dir() {
         edmonds-opt)    echo "edmonds-blossom-optimized" ;;
         gabow-simple)   echo "gabow-simple" ;;
         gabow-opt)      echo "gabow-optimized" ;;
+        gabow-dual)     echo "gabow-dual" ;;
         mv-pure)        echo "micali-vazirani-pure" ;;
         hk)             echo "hopcroft-karp" ;;
         hk-hybrid)      echo "hopcroft-karp-hybrid" ;;
@@ -72,7 +73,7 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|mv-pure|hk|hk-hybrid|hk-pure|hk-pure-lkhd) echo "fast" ;;
+        gabow-opt|gabow-dual|mv-pure|hk|hk-hybrid|hk-pure|hk-pure-lkhd) echo "fast" ;;
     esac
 }
 

@@ -42,7 +42,7 @@ F_ALGOS=""
 F_MODE=""
 
 # ── algorithm registry ────────────────────────────────────────────────
-ALL_ALGOS="edmonds-simple edmonds-opt gabow-simple gabow-opt mv-pure"
+ALL_ALGOS="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual mv-pure"
 
 alg_dir() {
     case "$1" in
@@ -50,6 +50,7 @@ alg_dir() {
         edmonds-opt)    echo "edmonds-blossom-optimized" ;;
         gabow-simple)   echo "gabow-simple" ;;
         gabow-opt)      echo "gabow-optimized" ;;
+        gabow-dual)     echo "gabow-dual" ;;
         mv-pure)        echo "micali-vazirani-pure" ;;
     esac
 }
@@ -61,7 +62,7 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|mv-pure) echo "fast" ;;
+        gabow-opt|gabow-dual|mv-pure) echo "fast" ;;
     esac
 }
 

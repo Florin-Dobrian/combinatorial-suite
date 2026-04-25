@@ -227,10 +227,8 @@ impl GabowMCM {
             self.target_bridge[mv] = y as i32;
             self.bd[mv] = self.bd[mv] + (self.delta - self.b_delta[mv]);
             self.b_delta[mv] = self.delta;
-            // NOCLONE: indexed access over self.adj[mv] avoids cloning.
-            // Safe because scan_edge never modifies self.adj.
-            for i in 0..self.adj[mv].len() {
-                let eid = self.adj[mv][i];
+            let adj_v: Vec<usize> = self.adj[mv].clone();
+            for eid in adj_v {
                 self.scan_edge(eid, mv);
             }
             let pmv = self.parent[mv] as usize;
@@ -276,9 +274,8 @@ impl GabowMCM {
             self.target_bridge[v] = NIL;
             self.bd[v] = 1;
             self.b_delta[v] = 0;
-            // NOCLONE: indexed access, only touches self.is_h.
-            for i in 0..self.adj[v].len() {
-                let eid = self.adj[v][i];
+            let adj_v: Vec<usize> = self.adj[v].clone();
+            for eid in adj_v {
                 self.is_h[eid] = false;
             }
         }
@@ -298,9 +295,8 @@ impl GabowMCM {
             self.tree_nodes.push(v);
         }
         for &v in &free {
-            // NOCLONE: scan_edge doesn't modify self.adj.
-            for i in 0..self.adj[v].len() {
-                let eid = self.adj[v][i];
+            let adj_v: Vec<usize> = self.adj[v].clone();
+            for eid in adj_v {
                 self.scan_edge(eid, v);
             }
         }
@@ -357,11 +353,9 @@ impl GabowMCM {
                     self.label[z as usize] = EVEN;
                     self.tree_nodes.push(y as usize);
                     self.tree_nodes.push(z as usize);
-                    // NOCLONE: indexed access on z's adjacency.
-                    let zu = z as usize;
-                    for i in 0..self.adj[zu].len() {
-                        let e2 = self.adj[zu][i];
-                        self.scan_edge(e2, zu);
+                    let adj_z: Vec<usize> = self.adj[z as usize].clone();
+                    for e2 in adj_z {
+                        self.scan_edge(e2, z as usize);
                     }
                 } else if self.label[by] == EVEN {
                     self.strue += 1.0;
@@ -415,9 +409,8 @@ impl GabowMCM {
                 // Mark tight edges
                 for &u in &tn {
                     let uh = self.find_dbase(u);
-                    // NOCLONE: indexed access on u's adjacency.
-                    for i in 0..self.adj[u].len() {
-                        let eid = self.adj[u][i];
+                    let adj_u: Vec<usize> = self.adj[u].clone();
+                    for eid in adj_u {
                         let v = self.opposite(u as i32, eid) as usize;
                         let vh = self.find_dbase(v);
                         if uh != vh {
@@ -456,11 +449,8 @@ impl GabowMCM {
     fn find_ap_hg(&mut self, vh: usize) -> i32 {
         let ci: Vec<usize> = self.contracted_into[vh].clone();
         for v in ci {
-            // NOCLONE: indexed access on v's adjacency.
-            // self.adj is static during matching; recursive find_ap_hg
-            // mutates label_h/parent_h/dbase_par but never self.adj.
-            for i in 0..self.adj[v].len() {
-                let eid = self.adj[v][i];
+            let adj_v: Vec<usize> = self.adj[v].clone();
+            for eid in adj_v {
                 if !self.is_h[eid] { continue; }
                 let w = self.opposite(v as i32, eid) as usize;
                 let uh = self.rep[w];
@@ -639,9 +629,8 @@ impl GabowMCM {
         let mut cnt = 0;
         for u in 0..self.n {
             if self.mate[u] != NIL { continue; }
-            // NOCLONE: indexed access on u's adjacency.
-            for i in 0..self.adj[u].len() {
-                let eid = self.adj[u][i];
+            let adj_u: Vec<usize> = self.adj[u].clone();
+            for eid in adj_u {
                 let v = self.opposite(u as i32, eid) as usize;
                 if self.mate[v] == NIL {
                     self.mate[u] = v as i32;
@@ -669,9 +658,8 @@ impl GabowMCM {
             if self.mate[u] != NIL { continue; }
             let mut best: i32 = NIL;
             let mut best_deg = u32::MAX;
-            // NOCLONE: indexed access, only reads deg and mate.
-            for i in 0..self.adj[u].len() {
-                let eid = self.adj[u][i];
+            let adj_u: Vec<usize> = self.adj[u].clone();
+            for eid in adj_u {
                 let v = self.opposite(u as i32, eid) as usize;
                 if self.mate[v] == NIL && deg[v] < best_deg {
                     best = v as i32;

@@ -1,9 +1,14 @@
 /*
- * Gabow MCM with proper duals and edge IDs.
+ * Gabow MCM with proper duals and edge IDs. CSR variant.
  * O(E * sqrt(V)) Maximum Cardinality Matching.
  *
  * Edge model: each undirected edge gets a unique ID with fixed
- * (src, tgt) endpoints. adj[v] stores edge IDs, not neighbors.
+ * (src, tgt) endpoints. Adjacency is stored as CSR (offsets + flat
+ * edge ID buffer), not as vector-of-vectors. Iteration sites use
+ * index-based loops to iterate over edge IDs incident to a vertex.
+ * The H-side structure (contracted_into) remains a vector-of-vectors
+ * because it grows dynamically during each phase.
+ *
  * This enables exact translation of LEDA's Phase 2 edge semantics:
  *   G.source(e) -> esrc[e]
  *   G.target(e) -> etgt[e]
@@ -29,8 +34,11 @@ struct GabowMCM {
 
     /* Edge storage: esrc[eid], etgt[eid] are fixed endpoints */
     std::vector<int> esrc, etgt;
-    /* adj[v] = list of edge IDs incident to v */
-    std::vector<std::vector<int>> adj;
+    /* adj as CSR:
+     *   adj_off[v] .. adj_off[v+1] is the range of edge IDs incident to v
+     *   adj_edges[j] is the edge ID at position j */
+    std::vector<int> adj_edges;
+    std::vector<int> adj_off;
     std::vector<int> mate;
 
     /* Helpers */
@@ -91,7 +99,6 @@ struct GabowMCM {
     int size_of_M;
 
     GabowMCM(int n_, const std::vector<std::pair<int,int>>& edges) : n(n_), m(0), size_of_M(0) {
-        adj.resize(n);
         mate.assign(n, NIL);
         label.assign(n, UNLABELED);
         parent.assign(n, NIL);
@@ -140,8 +147,22 @@ struct GabowMCM {
         for (int i = 0; i < m; i++) {
             esrc[i] = sorted_edges[i].first;
             etgt[i] = sorted_edges[i].second;
-            adj[esrc[i]].push_back(i);
-            adj[etgt[i]].push_back(i);
+        }
+
+        /* Build CSR adjacency: adj_off is prefix-sum of degrees,
+         * adj_edges holds edge IDs grouped by source vertex. */
+        adj_off.assign(n + 1, 0);
+        for (int i = 0; i < m; i++) {
+            adj_off[esrc[i] + 1]++;
+            adj_off[etgt[i] + 1]++;
+        }
+        for (int v = 0; v < n; v++) adj_off[v + 1] += adj_off[v];
+        adj_edges.resize(adj_off[n]);
+        /* tmp_pos tracks next write position per vertex during the fill */
+        std::vector<int> tmp_pos(adj_off.begin(), adj_off.begin() + n);
+        for (int i = 0; i < m; i++) {
+            adj_edges[tmp_pos[esrc[i]]++] = i;
+            adj_edges[tmp_pos[etgt[i]]++] = i;
         }
         is_H.assign(m, false);
     }
@@ -185,8 +206,11 @@ struct GabowMCM {
             target_bridge[v] = y;
             bd[v] = bd[v] + (Delta - bDelta[v]);
             bDelta[v] = Delta;
-            for (int eid : adj[v])
-                scan_edge(eid, v);
+            {
+                int s = adj_off[v], e = adj_off[v + 1];
+                for (int j = s; j < e; j++)
+                    scan_edge(adj_edges[j], v);
+            }
             v = find_base(parent[v]);
         }
         dunions.push_back({b, b});
@@ -242,8 +266,11 @@ struct GabowMCM {
             target_bridge[v] = NIL;
             bd[v] = 1;
             bDelta[v] = 0;
-            for (int eid : adj[v])
-                is_H[eid] = false;
+            {
+                int s = adj_off[v], e = adj_off[v + 1];
+                for (int j = s; j < e; j++)
+                    is_H[adj_edges[j]] = false;
+            }
         }
 
         /* Build or update free vertex list */
@@ -258,8 +285,9 @@ struct GabowMCM {
             tree_nodes.push_back(v);
         }
         for (int v : free_vertices) {
-            for (int eid : adj[v])
-                scan_edge(eid, v);
+            int s = adj_off[v], e = adj_off[v + 1];
+            for (int j = s; j < e; j++)
+                scan_edge(adj_edges[j], v);
         }
 
         bool found_sap = false;
@@ -295,8 +323,11 @@ struct GabowMCM {
                     label[z] = EVEN;
                     tree_nodes.push_back(y);
                     tree_nodes.push_back(z);
-                    for (int e2 : adj[z])
-                        scan_edge(e2, z);
+                    {
+                        int s = adj_off[z], e = adj_off[z + 1];
+                        for (int j = s; j < e; j++)
+                            scan_edge(adj_edges[j], z);
+                    }
 
                 } else if (label[find_base(y)] == EVEN) {
                     strue += 1.0;
@@ -331,7 +362,9 @@ struct GabowMCM {
                 /* Mark tight edges */
                 for (int u : tree_nodes) {
                     int uh = find_dbase(u);
-                    for (int eid : adj[u]) {
+                    int s = adj_off[u], e = adj_off[u + 1];
+                    for (int j = s; j < e; j++) {
+                        int eid = adj_edges[j];
                         int v = opposite(u, eid);
                         int vh = find_dbase(v);
                         if (uh != vh && d(u) + d(v) == w_edge(eid)) {
@@ -366,7 +399,9 @@ struct GabowMCM {
      * Mechanical translation of LEDA. Edge IDs give exact semantics. */
     int find_apHG(int vh) {
         for (int v : contracted_into[vh]) {
-            for (int eid : adj[v]) {
+            int a_beg = adj_off[v], a_end = adj_off[v + 1];
+            for (int j = a_beg; j < a_end; j++) {
+                int eid = adj_edges[j];
                 if (!is_H[eid]) continue;
                 int w = opposite(v, eid);
                 /* LEDA: uh = rep[G.opposite(v, eh)] */
@@ -529,7 +564,9 @@ struct GabowMCM {
         int cnt = 0;
         for (int u = 0; u < n; u++) {
             if (mate[u] != NIL) continue;
-            for (int eid : adj[u]) {
+            int s = adj_off[u], e = adj_off[u + 1];
+            for (int j = s; j < e; j++) {
+                int eid = adj_edges[j];
                 int v = opposite(u, eid);
                 if (mate[v] == NIL) { mate[u] = v; mate[v] = u; cnt++; break; }
             }
@@ -549,7 +586,9 @@ struct GabowMCM {
         for (int u : order) {
             if (mate[u] != NIL) continue;
             int best = -1, best_deg = INT_MAX;
-            for (int eid : adj[u]) {
+            int s = adj_off[u], e = adj_off[u + 1];
+            for (int j = s; j < e; j++) {
+                int eid = adj_edges[j];
                 int v = opposite(u, eid);
                 if (mate[v] == NIL && deg[v] < best_deg) { best = v; best_deg = deg[v]; }
             }
@@ -581,14 +620,17 @@ struct GabowMCM {
 };
 
 /* ================================================================ */
-void validate_matching(int n, const std::vector<std::vector<int>>& adj,
+void validate_matching(int n, const std::vector<int>& adj_edges,
+                       const std::vector<int>& adj_off,
                        const std::vector<int>& esrc, const std::vector<int>& etgt,
                        const std::vector<std::pair<int,int>>& matching) {
     std::vector<int> deg(n, 0);
     int errors = 0;
     for (auto& [u, v] : matching) {
         bool found = false;
-        for (int eid : adj[u]) {
+        int s = adj_off[u], e = adj_off[u + 1];
+        for (int j = s; j < e; j++) {
+            int eid = adj_edges[j];
             if ((esrc[eid] == u && etgt[eid] == v) || (esrc[eid] == v && etgt[eid] == u))
                 { found = true; break; }
         }
@@ -630,7 +672,7 @@ int main(int argc, char* argv[]) {
     printf("Graph: %d vertices, %d edges (deduped)\n", gabow.n, gabow.m);
     auto matching = gabow.solve(greedy_mode);
     auto t1 = std::chrono::high_resolution_clock::now();
-    validate_matching(n, gabow.adj, gabow.esrc, gabow.etgt, matching);
+    validate_matching(n, gabow.adj_edges, gabow.adj_off, gabow.esrc, gabow.etgt, matching);
     printf("Matching size: %d\n", (int)matching.size());
     if (greedy_mode > 0) {
         printf("Greedy init size: %d\n", gabow.greedy_size);

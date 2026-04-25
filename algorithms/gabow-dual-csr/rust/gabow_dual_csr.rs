@@ -1,9 +1,13 @@
-// Gabow MCM with proper duals and edge IDs.
+// Gabow MCM with proper duals and edge IDs. CSR variant.
 // O(E * sqrt(V)) Maximum Cardinality Matching.
 //
 // Edge model: each undirected edge gets a unique ID with fixed
-// (src, tgt) endpoints. adj[v] stores edge IDs, not neighbors.
-// This enables exact translation of LEDA's Phase 2 edge semantics.
+// (src, tgt) endpoints. Adjacency is stored as CSR (offsets + flat
+// edge ID buffer), not as Vec<Vec>. Iteration sites use index-based
+// loops over adj_off[v]..adj_off[v+1], avoiding the per-site .clone()
+// that the Vec<Vec> version required to satisfy the borrow checker.
+// The H-side structure (contracted_into) remains Vec<Vec> because it
+// grows dynamically during each phase.
 //
 // All integers. No floating point in algorithm. No dependencies.
 
@@ -23,8 +27,11 @@ struct GabowMCM {
     // Edge storage
     esrc: Vec<i32>,
     etgt: Vec<i32>,
-    // adj[v] = list of edge IDs incident to v
-    adj: Vec<Vec<usize>>,
+    // adj as CSR:
+    //   adj_off[v] .. adj_off[v+1] is the range of edge IDs incident to v
+    //   adj_edges[j] is the edge ID at position j
+    adj_edges: Vec<usize>,
+    adj_off: Vec<usize>,
     mate: Vec<i32>,
 
     // Phase 1
@@ -72,7 +79,6 @@ struct GabowMCM {
 
 impl GabowMCM {
     fn new(n: usize, edges: &[(i32, i32)]) -> Self {
-        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
         let max_pq = n / 2 + 2;
 
         // Dedup edges
@@ -92,8 +98,28 @@ impl GabowMCM {
         for (i, &(u, v)) in sorted.iter().enumerate() {
             esrc[i] = u;
             etgt[i] = v;
-            adj[u as usize].push(i);
-            adj[v as usize].push(i);
+        }
+
+        // Build CSR adjacency: adj_off is prefix-sum of degrees,
+        // adj_edges holds edge IDs grouped by source vertex.
+        let mut adj_off: Vec<usize> = vec![0; n + 1];
+        for i in 0..m {
+            adj_off[esrc[i] as usize + 1] += 1;
+            adj_off[etgt[i] as usize + 1] += 1;
+        }
+        for v in 0..n {
+            adj_off[v + 1] += adj_off[v];
+        }
+        let mut adj_edges: Vec<usize> = vec![0; adj_off[n]];
+        // tmp_pos tracks next write position per vertex during the fill
+        let mut tmp_pos: Vec<usize> = adj_off[0..n].to_vec();
+        for i in 0..m {
+            let u = esrc[i] as usize;
+            let v = etgt[i] as usize;
+            adj_edges[tmp_pos[u]] = i;
+            tmp_pos[u] += 1;
+            adj_edges[tmp_pos[v]] = i;
+            tmp_pos[v] += 1;
         }
 
         let base_par: Vec<usize> = (0..n).collect();
@@ -102,7 +128,7 @@ impl GabowMCM {
         GabowMCM {
             n, m,
             greedy_size: 0,
-            esrc, etgt, adj,
+            esrc, etgt, adj_edges, adj_off,
             mate: vec![NIL; n],
             label: vec![UNLABELED; n],
             parent: vec![NIL; n],
@@ -227,10 +253,10 @@ impl GabowMCM {
             self.target_bridge[mv] = y as i32;
             self.bd[mv] = self.bd[mv] + (self.delta - self.b_delta[mv]);
             self.b_delta[mv] = self.delta;
-            // NOCLONE: indexed access over self.adj[mv] avoids cloning.
-            // Safe because scan_edge never modifies self.adj.
-            for i in 0..self.adj[mv].len() {
-                let eid = self.adj[mv][i];
+            let s = self.adj_off[mv];
+            let e = self.adj_off[mv + 1];
+            for j in s..e {
+                let eid = self.adj_edges[j];
                 self.scan_edge(eid, mv);
             }
             let pmv = self.parent[mv] as usize;
@@ -276,9 +302,10 @@ impl GabowMCM {
             self.target_bridge[v] = NIL;
             self.bd[v] = 1;
             self.b_delta[v] = 0;
-            // NOCLONE: indexed access, only touches self.is_h.
-            for i in 0..self.adj[v].len() {
-                let eid = self.adj[v][i];
+            let s = self.adj_off[v];
+            let e = self.adj_off[v + 1];
+            for j in s..e {
+                let eid = self.adj_edges[j];
                 self.is_h[eid] = false;
             }
         }
@@ -298,9 +325,10 @@ impl GabowMCM {
             self.tree_nodes.push(v);
         }
         for &v in &free {
-            // NOCLONE: scan_edge doesn't modify self.adj.
-            for i in 0..self.adj[v].len() {
-                let eid = self.adj[v][i];
+            let s = self.adj_off[v];
+            let e = self.adj_off[v + 1];
+            for j in s..e {
+                let eid = self.adj_edges[j];
                 self.scan_edge(eid, v);
             }
         }
@@ -357,11 +385,11 @@ impl GabowMCM {
                     self.label[z as usize] = EVEN;
                     self.tree_nodes.push(y as usize);
                     self.tree_nodes.push(z as usize);
-                    // NOCLONE: indexed access on z's adjacency.
-                    let zu = z as usize;
-                    for i in 0..self.adj[zu].len() {
-                        let e2 = self.adj[zu][i];
-                        self.scan_edge(e2, zu);
+                    let s = self.adj_off[z as usize];
+                    let e = self.adj_off[z as usize + 1];
+                    for j in s..e {
+                        let e2 = self.adj_edges[j];
+                        self.scan_edge(e2, z as usize);
                     }
                 } else if self.label[by] == EVEN {
                     self.strue += 1.0;
@@ -415,9 +443,10 @@ impl GabowMCM {
                 // Mark tight edges
                 for &u in &tn {
                     let uh = self.find_dbase(u);
-                    // NOCLONE: indexed access on u's adjacency.
-                    for i in 0..self.adj[u].len() {
-                        let eid = self.adj[u][i];
+                    let s = self.adj_off[u];
+                    let e = self.adj_off[u + 1];
+                    for j in s..e {
+                        let eid = self.adj_edges[j];
                         let v = self.opposite(u as i32, eid) as usize;
                         let vh = self.find_dbase(v);
                         if uh != vh {
@@ -456,11 +485,10 @@ impl GabowMCM {
     fn find_ap_hg(&mut self, vh: usize) -> i32 {
         let ci: Vec<usize> = self.contracted_into[vh].clone();
         for v in ci {
-            // NOCLONE: indexed access on v's adjacency.
-            // self.adj is static during matching; recursive find_ap_hg
-            // mutates label_h/parent_h/dbase_par but never self.adj.
-            for i in 0..self.adj[v].len() {
-                let eid = self.adj[v][i];
+            let a_beg = self.adj_off[v];
+            let a_end = self.adj_off[v + 1];
+            for j in a_beg..a_end {
+                let eid = self.adj_edges[j];
                 if !self.is_h[eid] { continue; }
                 let w = self.opposite(v as i32, eid) as usize;
                 let uh = self.rep[w];
@@ -639,9 +667,10 @@ impl GabowMCM {
         let mut cnt = 0;
         for u in 0..self.n {
             if self.mate[u] != NIL { continue; }
-            // NOCLONE: indexed access on u's adjacency.
-            for i in 0..self.adj[u].len() {
-                let eid = self.adj[u][i];
+            let s = self.adj_off[u];
+            let e = self.adj_off[u + 1];
+            for j in s..e {
+                let eid = self.adj_edges[j];
                 let v = self.opposite(u as i32, eid) as usize;
                 if self.mate[v] == NIL {
                     self.mate[u] = v as i32;
@@ -669,9 +698,10 @@ impl GabowMCM {
             if self.mate[u] != NIL { continue; }
             let mut best: i32 = NIL;
             let mut best_deg = u32::MAX;
-            // NOCLONE: indexed access, only reads deg and mate.
-            for i in 0..self.adj[u].len() {
-                let eid = self.adj[u][i];
+            let s = self.adj_off[u];
+            let e = self.adj_off[u + 1];
+            for j in s..e {
+                let eid = self.adj_edges[j];
                 let v = self.opposite(u as i32, eid) as usize;
                 if self.mate[v] == NIL && deg[v] < best_deg {
                     best = v as i32;
@@ -716,13 +746,17 @@ impl GabowMCM {
     }
 }
 
-fn validate_matching(n: usize, adj: &[Vec<usize>], esrc: &[i32], etgt: &[i32],
+fn validate_matching(n: usize, adj_edges: &[usize], adj_off: &[usize],
+                     esrc: &[i32], etgt: &[i32],
                      matching: &[(usize, usize)]) {
     let mut deg = vec![0u32; n];
     let mut errors = 0;
     for &(u, v) in matching {
         let mut found = false;
-        for &eid in &adj[u] {
+        let s = adj_off[u];
+        let e = adj_off[u + 1];
+        for j in s..e {
+            let eid = adj_edges[j];
             if (esrc[eid] == u as i32 && etgt[eid] == v as i32)
                 || (esrc[eid] == v as i32 && etgt[eid] == u as i32) {
                 found = true;
@@ -788,7 +822,7 @@ fn main() {
     println!("Graph: {} vertices, {} edges (deduped)", gabow.n, gabow.m);
     let matching = gabow.solve(greedy_mode);
     let elapsed = t0.elapsed();
-    validate_matching(n, &gabow.adj, &gabow.esrc, &gabow.etgt, &matching);
+    validate_matching(n, &gabow.adj_edges, &gabow.adj_off, &gabow.esrc, &gabow.etgt, &matching);
     println!("Matching size: {}", matching.len());
     if greedy_mode > 0 {
         println!("Greedy init size: {}", gabow.greedy_size);

@@ -21,7 +21,7 @@
 # Produces:
 #   results/suitesparse/<timestamp>/report.md
 #   results/suitesparse/<timestamp>/results.csv
-#   results/suitesparse/<timestamp>/raw/
+#   results/suitesparse/<timestamp>/logs/
 
 set -e
 
@@ -35,6 +35,13 @@ RUNS=3
 TIMEOUT=600
 LIST_ONLY=0
 
+# Compiler flags (single source of truth; used at compile time and in environment.txt)
+CPP_FLAGS="-O3 -std=c++17"
+RUST_FLAGS="-O"
+
+# Capture original command-line args for environment.txt (before parsing consumes them)
+ORIG_ARGS="$*"
+
 # Filters (empty = all)
 F_GRAPHS=""
 F_LANGS=""
@@ -42,7 +49,7 @@ F_ALGOS=""
 F_MODE=""
 
 # ── algorithm registry ────────────────────────────────────────────────
-ALL_ALGOS="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual mv-pure"
+ALL_ALGOS="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual gabow-dual-csr mv-pure"
 
 alg_dir() {
     case "$1" in
@@ -51,6 +58,7 @@ alg_dir() {
         gabow-simple)   echo "gabow-simple" ;;
         gabow-opt)      echo "gabow-optimized" ;;
         gabow-dual)     echo "gabow-dual" ;;
+        gabow-dual-csr) echo "gabow-dual-csr" ;;
         mv-pure)        echo "micali-vazirani-pure" ;;
     esac
 }
@@ -62,7 +70,7 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|gabow-dual|mv-pure) echo "fast" ;;
+        gabow-opt|gabow-dual|gabow-dual-csr|mv-pure) echo "fast" ;;
     esac
 }
 
@@ -118,9 +126,109 @@ for m in $F_MODE; do
     esac
 done
 
-# Timestamp the output directory
+# Hostname-prefixed run ID: groups runs by machine when sorted
+HOST_SHORT="$(hostname -s)"
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
-OUTDIR="${OUTDIR}/${TIMESTAMP}"
+RUN_ID="${HOST_SHORT}_${TIMESTAMP}"
+OUTDIR="${OUTDIR}/${RUN_ID}"
+
+# ── Environment capture ───────────────────────────────────────────────
+ENV_FILE=""
+RUN_START_EPOCH=""
+
+write_env_header() {
+    mkdir -p "$OUTDIR"
+    ENV_FILE="$OUTDIR/environment.txt"
+    RUN_START_EPOCH="$(date +%s)"
+    {
+        echo "Run: $RUN_ID"
+        echo "Date: $(date '+%Y-%m-%d %H:%M:%S %z (%Z)')"
+        echo "Host: $HOST_SHORT"
+        echo "Hostname: $(hostname)"
+        echo ""
+        echo "== Command =="
+        echo "${0##*/} $ORIG_ARGS"
+        echo ""
+        echo "== Run parameters =="
+        echo "Algorithms: $(echo ${F_ALGOS:-(all)})"
+        echo "Languages: $(echo ${F_LANGS:-(all)})"
+        echo "Modes: $(echo ${F_MODE:-(all)})"
+        echo "Graphs: $(echo ${F_GRAPHS:-(all)})"
+        echo "Runs per job: $RUNS"
+        echo "Timeout: ${TIMEOUT}s"
+        echo ""
+        echo "== System =="
+        if [ "$(uname)" = "Darwin" ]; then
+            echo "OS: macOS $(sw_vers -productVersion 2>/dev/null)"
+            echo "Kernel: $(uname -sr)"
+            echo "Model: $(sysctl -n hw.model 2>/dev/null)"
+            echo "CPU: $(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
+            P="$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null)"
+            E="$(sysctl -n hw.perflevel1.physicalcpu 2>/dev/null)"
+            TOTAL="$(sysctl -n hw.ncpu 2>/dev/null)"
+            if [ -n "$P" ] && [ -n "$E" ]; then
+                echo "Cores: $TOTAL (${P} performance + ${E} efficiency)"
+            else
+                echo "Cores: $TOTAL"
+            fi
+            MEM_BYTES="$(sysctl -n hw.memsize 2>/dev/null)"
+            if [ -n "$MEM_BYTES" ]; then
+                echo "RAM: $(( MEM_BYTES / 1024 / 1024 / 1024 )) GB"
+            fi
+        else
+            echo "OS: $(uname -sr)"
+            echo "CPU: $(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //')"
+            echo "Cores: $(nproc 2>/dev/null)"
+            MEM_KB="$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')"
+            if [ -n "$MEM_KB" ]; then
+                echo "RAM: $(( MEM_KB / 1024 / 1024 )) GB"
+            fi
+        fi
+        echo ""
+        echo "== Compilers =="
+        if command -v g++ >/dev/null 2>&1; then
+            echo "C++ (g++): $(g++ --version | head -1)"
+            echo "  Path: $(command -v g++)"
+            echo "  Build flags: $CPP_FLAGS"
+        fi
+        if command -v rustc >/dev/null 2>&1; then
+            echo "Rust (rustc): $(rustc --version)"
+            echo "  Path: $(command -v rustc)"
+            echo "  Build flags: $RUST_FLAGS"
+        fi
+        echo ""
+        echo "== Repository =="
+        if git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+            REMOTE="$(git -C "$REPO" config --get remote.origin.url 2>/dev/null)"
+            BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+            COMMIT="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
+            DIRTY="$(git -C "$REPO" status --porcelain 2>/dev/null)"
+            [ -n "$REMOTE" ] && echo "Remote: $REMOTE"
+            [ -n "$BRANCH" ] && echo "Branch: $BRANCH"
+            [ -n "$COMMIT" ] && echo "Commit: $COMMIT"
+            if [ -z "$DIRTY" ]; then
+                echo "Working tree: clean"
+            else
+                echo "Working tree: dirty (uncommitted changes present)"
+            fi
+        fi
+        echo ""
+    } > "$ENV_FILE"
+}
+
+write_env_footer() {
+    RUN_END_EPOCH="$(date +%s)"
+    ELAPSED=$(( RUN_END_EPOCH - RUN_START_EPOCH ))
+    H=$(( ELAPSED / 3600 ))
+    M=$(( (ELAPSED % 3600) / 60 ))
+    S=$(( ELAPSED % 60 ))
+    {
+        echo "== Timing =="
+        echo "Started: $(date -r "$RUN_START_EPOCH" '+%Y-%m-%d %H:%M:%S %z (%Z)')"
+        echo "Finished: $(date -r "$RUN_END_EPOCH" '+%Y-%m-%d %H:%M:%S %z (%Z)')"
+        printf "Total: %dh %02dm %02ds\n" "$H" "$M" "$S"
+    } >> "$ENV_FILE"
+}
 
 # ── timeout command (macOS compat) ────────────────────────────────────
 if command -v gtimeout >/dev/null 2>&1; then
@@ -213,7 +321,7 @@ echo "============================================="
 echo "  SuiteSparse Benchmark Plan"
 echo "============================================="
 echo ""
-echo "  Run:            $TIMESTAMP"
+echo "  Run:            $RUN_ID"
 echo "  Output:         $OUTDIR"
 echo "  Data directory: $DATADIR"
 echo "  Languages:     $F_LANGS"
@@ -235,6 +343,9 @@ if [ "$LIST_ONLY" -eq 1 ]; then
     echo "(--list mode, not running.)"
     exit 0
 fi
+
+# Write environment.txt now that we know we're actually running
+write_env_header
 
 # ── compile ───────────────────────────────────────────────────────────
 echo "============================================="
@@ -268,7 +379,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             bin="$ALGO/$dir/cpp/${base}_cpp"
             [ -f "$src" ] || continue
             printf "  compile %-20s %-6s " "$alg" "cpp"
-            if g++ -O3 -std=c++17 "$src" -o "$bin" 2>/dev/null; then
+            if g++ $CPP_FLAGS "$src" -o "$bin" 2>/dev/null; then
                 echo "✓"
             else
                 echo "✗"
@@ -279,7 +390,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             bin="$ALGO/$dir/rust/${base}_rust"
             [ -f "$src" ] || continue
             printf "  compile %-20s %-6s " "$alg" "rust"
-            if rustc -O "$src" -o "$bin" 2>/dev/null; then
+            if rustc $RUST_FLAGS "$src" -o "$bin" 2>/dev/null; then
                 echo "✓"
             else
                 echo "✗"
@@ -297,9 +408,9 @@ echo "  Running ($RUNS runs each, reporting median)"
 echo "============================================="
 echo ""
 
-mkdir -p "$OUTDIR/raw"
+mkdir -p "$OUTDIR/logs"
 CSV="$OUTDIR/results.csv"
-echo "algo,graph,lang,vertices,mode,matching_size,greedy_init_size,greedy_pct,phases,median_ms,run1_ms,run2_ms,run3_ms,validation" > "$CSV"
+echo "algo,graph,lang,vertices,mode,matching_size,greedy_init_size,greedy_pct,phases,median_ms,run1_ms,run2_ms,run3_ms,validation,host" > "$CSV"
 
 job=0
 echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
@@ -308,7 +419,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
 
     dir="$(alg_dir "$alg")"
     base="$(alg_src "$alg")"
-    logbase="$OUTDIR/raw/${base}_${lang}_${gname}_${greedy}"
+    logbase="$OUTDIR/logs/${base}_${lang}_${gname}_${greedy}"
 
     printf "  [%3d/%d] %-18s %-6s %-10s %-25s " "$job" "$plan_count" "$alg" "$lang" "$greedy" "$gname"
 
@@ -390,7 +501,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     [ -z "$t2" ] && t2="-"
     [ -z "$t3" ] && t3="-"
 
-    echo "$alg,$gname,$lang,$v,$greedy,$size,$greedy_init,$greedy_pct,$phases,$med,$t1,$t2,$t3,$valid" >> "$CSV"
+    echo "$alg,$gname,$lang,$v,$greedy,$size,$greedy_init,$greedy_pct,$phases,$med,$t1,$t2,$t3,$valid,$HOST_SHORT" >> "$CSV"
 
     if [ "$greedy" = "greedy" ] || [ "$greedy" = "greedy-md" ]; then
         printf "size=%-8s median=%-8s %-6s greedy_init=%-8s (%s)  phases=%s\n" "$size" "${med}ms" "$valid" "$greedy_init" "$greedy_pct" "$phases"
@@ -431,6 +542,10 @@ echo ""
 echo "============================================="
 echo "  Generating Report"
 echo "============================================="
+
+# Disable set -e for this block: many grep calls legitimately return
+# no matches (e.g., when only one mode was run), and that's not an error.
+set +e
 
 REPORT="$OUTDIR/report.md"
 
@@ -631,16 +746,23 @@ echo "---" >> "$REPORT"
 echo "*Median of $RUNS runs. Wall-clock ms reported by each implementation. Timeout: ${TIMEOUT}s.*" >> "$REPORT"
 
 echo ""
-echo "  Run:     $TIMESTAMP"
-echo "  Report:  $OUTDIR/report.md"
-echo "  CSV:     $OUTDIR/results.csv"
-echo "  Logs:    $OUTDIR/raw/"
+echo "  Run:         $RUN_ID"
+echo "  Environment: $OUTDIR/environment.txt"
+echo "  Report:      $OUTDIR/report.md"
+echo "  Results:     $OUTDIR/results.csv"
+echo "  Logs:        $OUTDIR/logs/"
 
 # Create/update 'latest' symlink
 BASEDIR="$(dirname "$OUTDIR")"
-ln -sfn "$TIMESTAMP" "$BASEDIR/latest"
-echo "  Latest:  $BASEDIR/latest -> $TIMESTAMP"
+ln -sfn "$RUN_ID" "$BASEDIR/latest"
+echo "  Latest:      $BASEDIR/latest -> $RUN_ID"
 echo ""
+
+# Append timing footer to environment.txt
+write_env_footer
+
+# Re-enable strict mode for the verdict
+set -e
 
 # ── verdict ───────────────────────────────────────────────────────────
 if [ "$cross_fail" -eq 0 ] && [ "$fail_count" -eq 0 ]; then

@@ -20,3 +20,6 @@ __pycache__/
 .idea/
 data/
 results/
+
+# LEDA
+leda_obj/

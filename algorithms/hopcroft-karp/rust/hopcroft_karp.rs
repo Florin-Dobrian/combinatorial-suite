@@ -156,13 +156,17 @@ impl HopcroftKarp {
             2 => self.greedy_init_md(),
             _ => 0,
         };
+        let mut phases = 0;
         while self.bfs() {
+            phases += 1;
             for u in 0..self.left_count {
                 if self.pair_left[u] == NIL {
                     self.dfs(u as i32);
                 }
             }
         }
+
+        println!("Phases: {}", phases);
 
         let mut matching = Vec::new();
         for u in 0..self.left_count {

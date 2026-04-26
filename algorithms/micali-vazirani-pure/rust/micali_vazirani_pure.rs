@@ -667,11 +667,15 @@ impl MVGraph {
                 self.nodes[i].set_min_level(0);
             }
         }
+        let mut phase_count = 0;
         let mut found = self.max_match_phase();
+        if found { phase_count += 1; }
         while self.nodes.len() / 2 > self.matchnum && found {
             self.phase_reset();
             found = self.max_match_phase();
+            if found { phase_count += 1; }
         }
+        println!("Phases: {}", phase_count);
     }
 
     fn max_match_phase(&mut self) -> bool {

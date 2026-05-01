@@ -4,7 +4,7 @@
 # Usage:
 #   ./run_large_benchmarks.sh                                    # defaults
 #   ./run_large_benchmarks.sh --sizes 100k 1m --langs cpp rust
-#   ./run_large_benchmarks.sh --algos hk mv-pure gabow-opt
+#   ./run_large_benchmarks.sh --algos hk-re-vv mv-pure gabow-opt
 #   ./run_large_benchmarks.sh --mode plain greedy greedy-md
 #   ./run_large_benchmarks.sh --runs 5 --timeout 600
 #   ./run_large_benchmarks.sh --list
@@ -52,28 +52,35 @@ F_MODE=""
 # Short name → directory name, graph type, complexity class
 # Graph type: general | bipartite
 # Complexity: ve (O(VE)) | fast (O(E√V))
+#
+# HK naming: hk-{re,it,mb}-{vv,csr}
+#   re = recursive textbook (HKR)
+#   it = iterative (HKI)
+#   mb = matchbox-style iterative (HKM)
+# HKL pseudo-algos hk-mb-vv-lkhd / hk-mb-csr-lkhd share binaries with
+# hk-mb-vv / hk-mb-csr respectively, with --lkhd flag added at run time.
 
 ALL_GENERAL="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual gabow-dual-csr mv-pure"
-ALL_BIPARTITE="hk hk-hybrid hk-pure hk-pure-lkhd hk-csr hk-hybrid-csr hk-pure-csr hk-pure-lkhd-csr"
+ALL_BIPARTITE="hk-re-vv hk-re-csr hk-it-vv hk-it-csr hk-mb-vv hk-mb-csr hk-mb-vv-lkhd hk-mb-csr-lkhd"
 ALL_ALGOS="$ALL_GENERAL $ALL_BIPARTITE"
 
 alg_dir() {
     case "$1" in
-        edmonds-simple) echo "edmonds-blossom-simple" ;;
-        edmonds-opt)    echo "edmonds-blossom-optimized" ;;
-        gabow-simple)   echo "gabow-simple" ;;
-        gabow-opt)      echo "gabow-optimized" ;;
-        gabow-dual)     echo "gabow-dual" ;;
-        gabow-dual-csr) echo "gabow-dual-csr" ;;
-        mv-pure)        echo "micali-vazirani-pure" ;;
-        hk)             echo "hopcroft-karp" ;;
-        hk-hybrid)      echo "hopcroft-karp-hybrid" ;;
-        hk-pure)        echo "hopcroft-karp-pure" ;;
-        hk-pure-lkhd)   echo "hopcroft-karp-pure" ;;
-        hk-csr)             echo "hopcroft-karp-csr" ;;
-        hk-hybrid-csr)      echo "hopcroft-karp-hybrid-csr" ;;
-        hk-pure-csr)        echo "hopcroft-karp-pure-csr" ;;
-        hk-pure-lkhd-csr)   echo "hopcroft-karp-pure-csr" ;;
+        edmonds-simple)     echo "edmonds-blossom-simple" ;;
+        edmonds-opt)        echo "edmonds-blossom-optimized" ;;
+        gabow-simple)       echo "gabow-simple" ;;
+        gabow-opt)          echo "gabow-optimized" ;;
+        gabow-dual)         echo "gabow-dual" ;;
+        gabow-dual-csr)     echo "gabow-dual-csr" ;;
+        mv-pure)            echo "micali-vazirani-pure" ;;
+        hk-re-vv)           echo "hk-re-vv" ;;
+        hk-re-csr)          echo "hk-re-csr" ;;
+        hk-it-vv)           echo "hk-it-vv" ;;
+        hk-it-csr)          echo "hk-it-csr" ;;
+        hk-mb-vv)           echo "hk-mb-vv" ;;
+        hk-mb-csr)          echo "hk-mb-csr" ;;
+        hk-mb-vv-lkhd)      echo "hk-mb-vv" ;;
+        hk-mb-csr-lkhd)     echo "hk-mb-csr" ;;
     esac
 }
 
@@ -85,13 +92,13 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|gabow-dual|gabow-dual-csr|mv-pure|hk|hk-hybrid|hk-pure|hk-pure-lkhd|hk-csr|hk-hybrid-csr|hk-pure-csr|hk-pure-lkhd-csr) echo "fast" ;;
+        gabow-opt|gabow-dual|gabow-dual-csr|mv-pure|hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd) echo "fast" ;;
     esac
 }
 
 alg_type() {
     case "$1" in
-        hk|hk-hybrid|hk-pure|hk-pure-lkhd|hk-csr|hk-hybrid-csr|hk-pure-csr|hk-pure-lkhd-csr) echo "bipartite" ;;
+        hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd) echo "bipartite" ;;
         *)  echo "general" ;;
     esac
 }
@@ -425,20 +432,25 @@ mark_compiled() {
     compiled="$compiled ${1}:${2}"
 }
 
-echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
-    [ -z "$alg" ] && continue
-    [ "$lang" = "python" ] && continue
-    needs_compile "$alg" "$lang" || continue
+# For HKL pseudo-algos compile the underlying mb binary (same source).
+compile_alg() {
+    alg="$1"; lang="$2"
+    case "$alg" in
+        hk-mb-vv-lkhd)  base_alg="hk-mb-vv" ;;
+        hk-mb-csr-lkhd) base_alg="hk-mb-csr" ;;
+        *)              base_alg="$alg" ;;
+    esac
+    needs_compile "$base_alg" "$lang" || return 0
 
-    dir="$(alg_dir "$alg")"
-    base="$(alg_src "$alg")"
+    dir="$(alg_dir "$base_alg")"
+    base="$(alg_src "$base_alg")"
 
     case "$lang" in
         cpp)
             src="$ALGO/$dir/cpp/${base}.cpp"
             bin="$ALGO/$dir/cpp/${base}_cpp"
-            [ -f "$src" ] || continue
-            printf "  compile %-20s %-6s " "$alg" "cpp"
+            [ -f "$src" ] || return 0
+            printf "  compile %-20s %-6s " "$base_alg" "cpp"
             if g++ $CPP_FLAGS "$src" -o "$bin" 2>/dev/null; then
                 echo "✓"
             else
@@ -447,10 +459,10 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             fi
             ;;
         rust)
-            src="$ALGO/$dir/rust/${base}.rs"
-            bin="$ALGO/$dir/rust/${base}_rust"
-            [ -f "$src" ] || continue
-            printf "  compile %-20s %-6s " "$alg" "rust"
+            src="$ALGO/$dir/rs/${base}.rs"
+            bin="$ALGO/$dir/rs/${base}_rs"
+            [ -f "$src" ] || return 0
+            printf "  compile %-20s %-6s " "$base_alg" "rust"
             if rustc $RUST_FLAGS "$src" -o "$bin" 2>/dev/null; then
                 echo "✓"
             else
@@ -459,7 +471,13 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             fi
             ;;
     esac
-    mark_compiled "$alg" "$lang"
+    mark_compiled "$base_alg" "$lang"
+}
+
+echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
+    [ -z "$alg" ] && continue
+    [ "$lang" = "python" ] && continue
+    compile_alg "$alg" "$lang"
 done
 
 echo ""
@@ -481,7 +499,17 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
 
     dir="$(alg_dir "$alg")"
     base="$(alg_src "$alg")"
-    logbase="$OUTDIR/logs/${base}_${lang}_${gname}_${greedy}"
+
+    # For HKL pseudo-algos disambiguate the log filename so we don't
+    # collide with the corresponding mb (non-lkhd) run.
+    case "$alg" in
+        hk-mb-vv-lkhd|hk-mb-csr-lkhd)
+            logbase="$OUTDIR/logs/${base}_lkhd_${lang}_${gname}_${greedy}"
+            ;;
+        *)
+            logbase="$OUTDIR/logs/${base}_${lang}_${gname}_${greedy}"
+            ;;
+    esac
 
     printf "  [%3d/%d] %-18s %-6s %-10s %-30s " "$job" "$plan_count" "$alg" "$lang" "$greedy" "$gname"
 
@@ -493,7 +521,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             cmd="$bin"
             ;;
         rust)
-            bin="$ALGO/$dir/rust/${base}_rust"
+            bin="$ALGO/$dir/rs/${base}_rs"
             [ -x "$bin" ] || { echo "SKIP (not compiled)"; continue; }
             cmd="$bin"
             ;;
@@ -508,7 +536,9 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     extra_args=""
     [ "$greedy" = "greedy" ] && extra_args="--greedy"
     [ "$greedy" = "greedy-md" ] && extra_args="--greedy-md"
-    case "$alg" in hk-pure-lkhd|hk-pure-lkhd-csr) extra_args="$extra_args --lkhd" ;; esac
+    case "$alg" in
+        hk-mb-vv-lkhd|hk-mb-csr-lkhd) extra_args="$extra_args --lkhd" ;;
+    esac
 
     # Run N times
     times=""
@@ -618,7 +648,6 @@ REPORT="$OUTDIR/report.md"
 
 cat > "$REPORT" << 'EOF'
 # Large-Scale Benchmark Report
-
 EOF
 
 echo "Generated: $(date '+%Y-%m-%d %H:%M:%S')" >> "$REPORT"

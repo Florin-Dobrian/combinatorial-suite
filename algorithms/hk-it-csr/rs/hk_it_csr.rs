@@ -1,12 +1,12 @@
 /*
- * Hopcroft-Karp Hybrid Algorithm - O(E√V) Maximum Bipartite Matching
+ * Hopcroft-Karp Iterative Algorithm - O(E√V) Maximum Bipartite Matching
  *
  * CSR adjacency: contiguous flat arrays.
- * Old HK's lean BFS (single dist[] array, sentinel trick) + iterative
+ * Old HK's lean BFS (single s_level[] array, sentinel trick) + iterative
  * stack-based DFS with edge index array (no recursion, no rescan).
  *
  * Refactored to separate input (BipartiteGraph), output (BipartiteMatching),
- * and algorithm state (HKHState).
+ * and algorithm state (HKIState).
  */
 
 use std::env;
@@ -40,13 +40,13 @@ struct BipartiteMatching {
     t_mate: Vec<i32>,
 }
 
-/* ---------- State: HKHState ---------- */
+/* ---------- State: HKIState ---------- */
 
-struct HKHState {
-    dist: Vec<i32>,         // length s_num_vtxs+1; dist[s_num_vtxs] is the NIL sentinel
-    edge_idx: Vec<usize>,   // length s_num_vtxs; offset within u's adjacency range (persistent within a phase)
-    stk_u: Vec<i32>,        // length s_num_vtxs; DFS stack (s-vertices)
-    stk_v: Vec<i32>,        // length s_num_vtxs; t-vertex chosen at each depth
+struct HKIState {
+    s_level: Vec<i32>,         // length s_num_vtxs+1; s_level[s_num_vtxs] is the NIL sentinel
+    s_idx: Vec<usize>,         // length s_num_vtxs; relative offset within s's adjacency, persistent within a phase
+    s_prcb_stk: Vec<i32>,      // length s_num_vtxs; DFS stack (s-vertices)
+    t_prcb_stk: Vec<i32>,      // length s_num_vtxs; t-vertex chosen at each depth
     stk_top: usize,
 }
 
@@ -56,27 +56,27 @@ fn build_bipartite_graph(s_num_vtxs: usize, t_num_vtxs: usize,
                          edges: &[(usize, usize)]) -> BipartiteGraph {
     let mut s_tmp: Vec<Vec<i32>> = vec![Vec::new(); s_num_vtxs];
     let mut t_tmp: Vec<Vec<i32>> = vec![Vec::new(); t_num_vtxs];
-    for &(u, v) in edges {
-        if u < s_num_vtxs && v < t_num_vtxs {
-            s_tmp[u].push(v as i32);
-            t_tmp[v].push(u as i32);
+    for &(s, t) in edges {
+        if s < s_num_vtxs && t < t_num_vtxs {
+            s_tmp[s].push(t as i32);
+            t_tmp[t].push(s as i32);
         }
     }
     for adj in &mut s_tmp { adj.sort_unstable(); adj.dedup(); }
     for adj in &mut t_tmp { adj.sort_unstable(); adj.dedup(); }
 
     let mut s_idx = vec![0usize; s_num_vtxs + 1];
-    for u in 0..s_num_vtxs { s_idx[u + 1] = s_idx[u] + s_tmp[u].len(); }
+    for s in 0..s_num_vtxs { s_idx[s + 1] = s_idx[s] + s_tmp[s].len(); }
     let mut s_adj: Vec<i32> = Vec::with_capacity(s_idx[s_num_vtxs]);
-    for u in 0..s_num_vtxs {
-        s_adj.extend_from_slice(&s_tmp[u]);
+    for s in 0..s_num_vtxs {
+        s_adj.extend_from_slice(&s_tmp[s]);
     }
 
     let mut t_idx = vec![0usize; t_num_vtxs + 1];
-    for v in 0..t_num_vtxs { t_idx[v + 1] = t_idx[v] + t_tmp[v].len(); }
+    for t in 0..t_num_vtxs { t_idx[t + 1] = t_idx[t] + t_tmp[t].len(); }
     let mut t_adj: Vec<i32> = Vec::with_capacity(t_idx[t_num_vtxs]);
-    for v in 0..t_num_vtxs {
-        t_adj.extend_from_slice(&t_tmp[v]);
+    for t in 0..t_num_vtxs {
+        t_adj.extend_from_slice(&t_tmp[t]);
     }
 
     let num_edgs = s_idx[s_num_vtxs];
@@ -94,235 +94,239 @@ fn build_bipartite_graph(s_num_vtxs: usize, t_num_vtxs: usize,
 
 /* ---------- BipartiteMatching construction ---------- */
 
-fn empty_bipartite_matching(g: &BipartiteGraph) -> BipartiteMatching {
+fn empty_bipartite_matching(graph: &BipartiteGraph) -> BipartiteMatching {
     BipartiteMatching {
-        s_num_vtxs: g.s_num_vtxs,
-        t_num_vtxs: g.t_num_vtxs,
+        s_num_vtxs: graph.s_num_vtxs,
+        t_num_vtxs: graph.t_num_vtxs,
         num_edgs: 0,
-        s_mate: vec![NIL; g.s_num_vtxs],
-        t_mate: vec![NIL; g.t_num_vtxs],
+        s_mate: vec![NIL; graph.s_num_vtxs],
+        t_mate: vec![NIL; graph.t_num_vtxs],
     }
 }
 
 /* ---------- Greedy initial matching: simple ---------- */
 
-fn greedy_init(g: &BipartiteGraph, m: &mut BipartiteMatching) -> usize {
-    let mut cnt: usize = 0;
-    for u in 0..g.s_num_vtxs {
-        if m.s_mate[u] != NIL { continue; }
-        let s = g.s_idx[u];
-        let e = g.s_idx[u + 1];
-        for j in s..e {
-            let v = g.s_adj[j];
-            if m.t_mate[v as usize] == NIL {
-                m.s_mate[u] = v;
-                m.t_mate[v as usize] = u as i32;
-                cnt += 1;
+fn greedy_init(graph: &BipartiteGraph, matching: &mut BipartiteMatching) -> usize {
+    let mut num_edgs: usize = 0;
+    for s in 0..graph.s_num_vtxs {
+        if matching.s_mate[s] != NIL { continue; }
+        let s_begin = graph.s_idx[s];
+        let s_end = graph.s_idx[s + 1];
+        for k in s_begin..s_end {
+            let t = graph.s_adj[k];
+            if matching.t_mate[t as usize] == NIL {
+                matching.s_mate[s] = t;
+                matching.t_mate[t as usize] = s as i32;
+                num_edgs += 1;
                 break;
             }
         }
     }
-    m.num_edgs += cnt;
-    cnt
+    matching.num_edgs += num_edgs;
+    num_edgs
 }
 
 /* ---------- Greedy initial matching: min-degree ---------- */
 
-fn greedy_init_md(g: &BipartiteGraph, m: &mut BipartiteMatching) -> usize {
-    let mut cnt: usize = 0;
-    let mut deg = vec![0usize; g.t_num_vtxs];
-    for u in 0..g.s_num_vtxs {
-        let s = g.s_idx[u];
-        let e = g.s_idx[u + 1];
-        for j in s..e { deg[g.s_adj[j] as usize] += 1; }
+fn greedy_init_md(graph: &BipartiteGraph, matching: &mut BipartiteMatching) -> usize {
+    let mut num_edgs: usize = 0;
+    let mut deg = vec![0usize; graph.t_num_vtxs];
+    for s in 0..graph.s_num_vtxs {
+        let s_begin = graph.s_idx[s];
+        let s_end = graph.s_idx[s + 1];
+        for k in s_begin..s_end { deg[graph.s_adj[k] as usize] += 1; }
     }
-    let mut order: Vec<usize> = (0..g.s_num_vtxs).collect();
-    order.sort_unstable_by(|&a, &b| {
-        let da = g.s_idx[a + 1] - g.s_idx[a];
-        let db = g.s_idx[b + 1] - g.s_idx[b];
-        da.cmp(&db).then(a.cmp(&b))
+    let mut s_order: Vec<usize> = (0..graph.s_num_vtxs).collect();
+    /* Sort s-vertices in increasing order of degree, breaking ties by vertex label. */
+    s_order.sort_unstable_by(|&s1, &s2| {
+        let s1_deg = graph.s_idx[s1 + 1] - graph.s_idx[s1];
+        let s2_deg = graph.s_idx[s2 + 1] - graph.s_idx[s2];
+        s1_deg.cmp(&s2_deg).then(s1.cmp(&s2))
     });
-    for u in order {
-        if m.s_mate[u] != NIL { continue; }
+    for s in s_order {
+        if matching.s_mate[s] != NIL { continue; }
         let mut best: i32 = NIL;
         let mut best_deg = usize::MAX;
-        let s = g.s_idx[u];
-        let e = g.s_idx[u + 1];
-        for j in s..e {
-            let v = g.s_adj[j];
-            if m.t_mate[v as usize] == NIL && deg[v as usize] < best_deg {
-                best = v;
-                best_deg = deg[v as usize];
+        let s_begin = graph.s_idx[s];
+        let s_end = graph.s_idx[s + 1];
+        for k in s_begin..s_end {
+            let t = graph.s_adj[k];
+            if matching.t_mate[t as usize] == NIL && deg[t as usize] < best_deg {
+                best = t;
+                best_deg = deg[t as usize];
             }
         }
         if best != NIL {
-            m.s_mate[u] = best;
-            m.t_mate[best as usize] = u as i32;
-            cnt += 1;
+            matching.s_mate[s] = best;
+            matching.t_mate[best as usize] = s as i32;
+            num_edgs += 1;
         }
     }
-    m.num_edgs += cnt;
-    cnt
+    matching.num_edgs += num_edgs;
+    num_edgs
 }
 
 /* ---------- HK BFS ---------- */
 
-fn bfs(g: &BipartiteGraph, m: &BipartiteMatching, s: &mut HKHState) -> bool {
-    let mut queue: Vec<usize> = Vec::with_capacity(g.s_num_vtxs);
+fn bfs(graph: &BipartiteGraph, matching: &BipartiteMatching, state: &mut HKIState) -> bool {
+    let mut s_prcb_que: Vec<usize> = Vec::with_capacity(graph.s_num_vtxs);
 
-    for u in 0..g.s_num_vtxs {
-        if m.s_mate[u] == NIL {
-            s.dist[u] = 0;
-            queue.push(u);
+    for s in 0..graph.s_num_vtxs {
+        if matching.s_mate[s] == NIL {
+            state.s_level[s] = 0;
+            s_prcb_que.push(s);
         } else {
-            s.dist[u] = i32::MAX;
+            state.s_level[s] = i32::MAX;
         }
     }
-    s.dist[g.s_num_vtxs] = i32::MAX;
+    state.s_level[graph.s_num_vtxs] = i32::MAX;
 
-    let mut qi = 0;
-    while qi < queue.len() {
-        let u = queue[qi];
-        qi += 1;
-        if s.dist[u] < s.dist[g.s_num_vtxs] {
-            let st = g.s_idx[u];
-            let en = g.s_idx[u + 1];
-            for j in st..en {
-                let v = g.s_adj[j];
-                let paired = if m.t_mate[v as usize] == NIL {
-                    g.s_num_vtxs
+    let mut que_head = 0;
+    while que_head < s_prcb_que.len() {
+        let s = s_prcb_que[que_head];
+        que_head += 1;
+        if state.s_level[s] < state.s_level[graph.s_num_vtxs] {
+            let s_begin = graph.s_idx[s];
+            let s_end = graph.s_idx[s + 1];
+            for k in s_begin..s_end {
+                let t = graph.s_adj[k];
+                let ss = if matching.t_mate[t as usize] == NIL {
+                    graph.s_num_vtxs
                 } else {
-                    m.t_mate[v as usize] as usize
+                    matching.t_mate[t as usize] as usize
                 };
-                if s.dist[paired] == i32::MAX {
-                    s.dist[paired] = s.dist[u] + 1;
-                    if m.t_mate[v as usize] != NIL {
-                        queue.push(m.t_mate[v as usize] as usize);
+                if state.s_level[ss] == i32::MAX {
+                    state.s_level[ss] = state.s_level[s] + 1;
+                    if matching.t_mate[t as usize] != NIL {
+                        s_prcb_que.push(matching.t_mate[t as usize] as usize);
                     }
                 }
             }
         }
     }
-    s.dist[g.s_num_vtxs] != i32::MAX
+    state.s_level[graph.s_num_vtxs] != i32::MAX
 }
 
 /*
  * DFS: iterative with edge index.
- * edge_idx[u] is an offset within u's adjacency range [s_idx[u], s_idx[u+1]).
+ *
+ * state.s_idx[s] is an offset WITHIN s's adjacency range [graph.s_idx[s], graph.s_idx[s+1]).
+ * So the "current candidate edge" is graph.s_adj[graph.s_idx[s] + state.s_idx[s]].
  */
-fn dfs(root: usize, g: &BipartiteGraph, m: &mut BipartiteMatching, s: &mut HKHState) -> bool {
-    s.stk_top = 0;
-    s.stk_u[0] = root as i32;
-    s.stk_top = 1;
+fn dfs(s_first: usize, graph: &BipartiteGraph, matching: &mut BipartiteMatching, state: &mut HKIState) -> bool {
+    state.stk_top = 0;
+    state.s_prcb_stk[state.stk_top] = s_first as i32;
+    state.stk_top += 1;
 
-    while s.stk_top > 0 {
-        let u = s.stk_u[s.stk_top - 1] as usize;
-        let st = g.s_idx[u];
-        let en = g.s_idx[u + 1];
-        let sz = en - st;
+    while state.stk_top > 0 {
+        let s = state.s_prcb_stk[state.stk_top - 1] as usize;
+        let s_begin = graph.s_idx[s];
+        let s_end = graph.s_idx[s + 1];
+        let s_num_edgs = s_end - s_begin;
 
         let mut pushed = false;
-        while s.edge_idx[u] < sz {
-            let v = g.s_adj[st + s.edge_idx[u]];
-            let paired = if m.t_mate[v as usize] == NIL {
-                g.s_num_vtxs
+        while state.s_idx[s] < s_num_edgs {
+            let t = graph.s_adj[s_begin + state.s_idx[s]];
+            let ss = if matching.t_mate[t as usize] == NIL {
+                graph.s_num_vtxs
             } else {
-                m.t_mate[v as usize] as usize
+                matching.t_mate[t as usize] as usize
             };
-            if s.dist[paired] != s.dist[u] + 1 {
-                s.edge_idx[u] += 1;
+            if state.s_level[ss] != state.s_level[s] + 1 {
+                state.s_idx[s] += 1;
                 continue;
             }
 
-            s.stk_v[s.stk_top - 1] = v;
-            s.edge_idx[u] += 1;
+            state.t_prcb_stk[state.stk_top - 1] = t;
+            state.s_idx[s] += 1;
 
-            if m.t_mate[v as usize] == NIL {
-                let mut d = s.stk_top as isize - 1;
-                while d >= 0 {
-                    let du = s.stk_u[d as usize] as usize;
-                    let dv = s.stk_v[d as usize] as usize;
-                    m.t_mate[dv] = du as i32;
-                    m.s_mate[du] = dv as i32;
-                    d -= 1;
+            if matching.t_mate[t as usize] == NIL {
+                /* Found augmenting path — augment all the way back */
+                let mut k = state.stk_top as isize - 1;
+                while k >= 0 {
+                    let ks = state.s_prcb_stk[k as usize] as usize;
+                    let kt = state.t_prcb_stk[k as usize] as usize;
+                    matching.t_mate[kt] = ks as i32;
+                    matching.s_mate[ks] = kt as i32;
+                    k -= 1;
                 }
                 return true;
             }
 
-            s.stk_u[s.stk_top] = m.t_mate[v as usize];
-            s.stk_top += 1;
+            state.s_prcb_stk[state.stk_top] = matching.t_mate[t as usize];
+            state.stk_top += 1;
             pushed = true;
             break;
         }
 
         if !pushed {
-            s.dist[u] = i32::MAX;
-            s.stk_top -= 1;
+            state.s_level[s] = i32::MAX;
+            state.stk_top -= 1;
         }
     }
     false
 }
 
-/* ---------- Top-level Hopcroft-Karp Hybrid ---------- */
+/* ---------- Top-level Hopcroft-Karp Iterative ---------- */
 
-fn hopcroft_karp_hybrid(g: &BipartiteGraph, m: &mut BipartiteMatching) {
-    let n = g.s_num_vtxs.max(1);
-    let mut s = HKHState {
-        dist: vec![0i32; g.s_num_vtxs + 1],
-        edge_idx: vec![0usize; g.s_num_vtxs],
-        stk_u: vec![0i32; n],
-        stk_v: vec![0i32; n],
+fn hk_iterative(graph: &BipartiteGraph, matching: &mut BipartiteMatching) -> i32 {
+    let n = graph.s_num_vtxs.max(1);
+    let mut state = HKIState {
+        s_level: vec![0i32; graph.s_num_vtxs + 1],
+        s_idx: vec![0usize; graph.s_num_vtxs],
+        s_prcb_stk: vec![0i32; n],
+        t_prcb_stk: vec![0i32; n],
         stk_top: 0,
     };
 
-    let mut phases: i32 = 0;
+    let mut num_phases: i32 = 0;
     let mut new_edgs: usize = 0;
-    while bfs(g, m, &mut s) {
-        phases += 1;
-        for u in 0..g.s_num_vtxs { s.edge_idx[u] = 0; }
-        for u in 0..g.s_num_vtxs {
-            if m.s_mate[u] == NIL && dfs(u, g, m, &mut s) {
+    while bfs(graph, matching, &mut state) {
+        num_phases += 1;
+        for s in 0..graph.s_num_vtxs { state.s_idx[s] = 0; }
+        for s in 0..graph.s_num_vtxs {
+            if matching.s_mate[s] == NIL && dfs(s, graph, matching, &mut state) {
                 new_edgs += 1;
             }
         }
     }
-    m.num_edgs += new_edgs;
-    println!("Phases: {}", phases);
+    matching.num_edgs += new_edgs;
+    num_phases
 }
 
 /* ---------- Validation ---------- */
 
-fn validate_bipartite_matching(g: &BipartiteGraph, m: &BipartiteMatching) {
+fn validate_bipartite_matching(graph: &BipartiteGraph, matching: &BipartiteMatching) {
     let mut errors = 0;
     let mut matched_s = 0;
     let mut matched_t = 0;
 
-    for u in 0..g.s_num_vtxs {
-        if m.s_mate[u] != NIL {
+    for s in 0..graph.s_num_vtxs {
+        if matching.s_mate[s] != NIL {
             matched_s += 1;
-            let v = m.s_mate[u];
-            if v < 0 || (v as usize) >= g.t_num_vtxs {
-                eprintln!("ERROR: s_mate[{}] = {} out of range", u, v);
+            let t = matching.s_mate[s];
+            if t < 0 || (t as usize) >= graph.t_num_vtxs {
+                eprintln!("ERROR: s_mate[{}] = {} out of range", s, t);
                 errors += 1;
-            } else if m.t_mate[v as usize] != u as i32 {
-                eprintln!("ERROR: s_mate[{}]={} but t_mate[{}]={}", u, v, v, m.t_mate[v as usize]);
+            } else if matching.t_mate[t as usize] != s as i32 {
+                eprintln!("ERROR: s_mate[{}]={} but t_mate[{}]={}", s, t, t, matching.t_mate[t as usize]);
                 errors += 1;
             } else {
-                let st = g.s_idx[u];
-                let en = g.s_idx[u + 1];
-                if !g.s_adj[st..en].binary_search(&v).is_ok() {
-                    eprintln!("ERROR: edge ({},{}) not in graph", u, v);
+                let s_begin = graph.s_idx[s];
+                let s_end = graph.s_idx[s + 1];
+                if !graph.s_adj[s_begin..s_end].binary_search(&t).is_ok() {
+                    eprintln!("ERROR: edge ({},{}) not in graph", s, t);
                     errors += 1;
                 }
             }
         }
     }
-    for v in 0..g.t_num_vtxs {
-        if m.t_mate[v] != NIL { matched_t += 1; }
+    for t in 0..graph.t_num_vtxs {
+        if matching.t_mate[t] != NIL { matched_t += 1; }
     }
 
     println!("\n=== Validation Report ===");
-    println!("Matching size: {}", m.num_edgs);
+    println!("Matching size: {}", matching.num_edgs);
     println!("S matched: {}, T matched: {}", matched_s, matched_t);
     println!("{}", if errors > 0 { "VALIDATION FAILED" } else { "VALIDATION PASSED" });
     println!("=========================\n");
@@ -349,9 +353,9 @@ fn load_graph(filename: &str) -> Result<(usize, usize, Vec<(usize, usize)>), Box
         let line = line?;
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
-            let u: usize = parts[0].parse()?;
-            let v: usize = parts[1].parse()?;
-            edges.push((u, v));
+            let s: usize = parts[0].parse()?;
+            let t: usize = parts[1].parse()?;
+            edges.push((s, t));
         }
     }
     Ok((s_num_vtxs, t_num_vtxs, edges))
@@ -360,8 +364,8 @@ fn load_graph(filename: &str) -> Result<(usize, usize, Vec<(usize, usize)>), Box
 /* ---------- Main ---------- */
 
 fn main() {
-    println!("Hopcroft-Karp Hybrid Algorithm - Rust Implementation (CSR)");
-    println!("============================================================\n");
+    println!("Hopcroft-Karp Iterative Algorithm - Rust Implementation (CSR)");
+    println!("===============================================================\n");
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -377,26 +381,27 @@ fn main() {
             println!("Graph: {} s-vertices, {} t-vertices, {} edges",
                      s_num_vtxs, t_num_vtxs, edges.len());
 
-            let bipartite_graph = build_bipartite_graph(s_num_vtxs, t_num_vtxs, &edges);
-            let mut bipartite_matching = empty_bipartite_matching(&bipartite_graph);
+            let graph = build_bipartite_graph(s_num_vtxs, t_num_vtxs, &edges);
+            let mut matching = empty_bipartite_matching(&graph);
 
             let start = Instant::now();
 
             let greedy_size: usize = match greedy_mode {
-                1 => greedy_init(&bipartite_graph, &mut bipartite_matching),
-                2 => greedy_init_md(&bipartite_graph, &mut bipartite_matching),
+                1 => greedy_init(&graph, &mut matching),
+                2 => greedy_init_md(&graph, &mut matching),
                 _ => 0,
             };
 
-            hopcroft_karp_hybrid(&bipartite_graph, &mut bipartite_matching);
+            let num_phases = hk_iterative(&graph, &mut matching);
 
             let duration = start.elapsed();
 
-            validate_bipartite_matching(&bipartite_graph, &bipartite_matching);
+            validate_bipartite_matching(&graph, &matching);
 
-            println!("Matching size: {}", bipartite_matching.num_edgs);
+            println!("Phases: {}", num_phases);
+            println!("Matching size: {}", matching.num_edgs);
             if greedy_mode > 0 {
-                let fs = bipartite_matching.num_edgs;
+                let fs = matching.num_edgs;
                 println!("Greedy init size: {}", greedy_size);
                 if fs > 0 {
                     println!("Greedy/Final: {:.2}%", 100.0 * greedy_size as f64 / fs as f64);

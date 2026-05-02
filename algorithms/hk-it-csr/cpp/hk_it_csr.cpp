@@ -1,12 +1,12 @@
 /*
- * Hopcroft-Karp Hybrid Algorithm - O(E√V) Maximum Bipartite Matching
+ * Hopcroft-Karp Iterative Algorithm - O(E√V) Maximum Bipartite Matching
  *
  * CSR adjacency: contiguous flat arrays.
- * Old HK's lean BFS (single dist[] array, sentinel trick) + iterative
+ * Old HK's lean BFS (single sLevel[] array, sentinel trick) + iterative
  * stack-based DFS with edge index array (no recursion, no rescan).
  *
  * Refactored to separate input (BipartiteGraph), output (BipartiteMatching),
- * and algorithm state (HKHState).
+ * and algorithm state (HKIState).
  */
 
 #include <cstdio>
@@ -42,13 +42,13 @@ struct BipartiteMatching {
     std::vector<int32_t> tMate;
 };
 
-/* ---------- State: HKHState ---------- */
+/* ---------- State: HKIState ---------- */
 
-struct HKHState {
-    std::vector<int32_t> dist;       // length sNumVtxs+1; dist[sNumVtxs] is the NIL sentinel
-    std::vector<int32_t> edgeIdx;    // length sNumVtxs; offset within u's adjacency range (persistent within a phase)
-    std::vector<int32_t> stkU;       // length sNumVtxs; DFS stack (s-vertices)
-    std::vector<int32_t> stkV;       // length sNumVtxs; t-vertex chosen at each depth
+struct HKIState {
+    std::vector<int32_t> sLevel;       // length sNumVtxs+1; sLevel[sNumVtxs] is the NIL sentinel
+    std::vector<int32_t> sIdx;       // length sNumVtxs; relative offset within s's adjacency range, persistent within a phase
+    std::vector<int32_t> sPrcbStk;       // length sNumVtxs; DFS stack (s-vertices)
+    std::vector<int32_t> tPrcbStk;       // length sNumVtxs; t-vertex chosen at each depth
     int32_t stkTop;
 };
 
@@ -59,247 +59,250 @@ BipartiteGraph buildBipartiteGraph(size_t sNumVtxs, size_t tNumVtxs,
     std::vector<std::vector<int32_t>> sTmp(sNumVtxs);
     std::vector<std::vector<int32_t>> tTmp(tNumVtxs);
     for (auto& e : edges) {
-        int32_t u = e.first, v = e.second;
-        if (u >= 0 && (size_t)u < sNumVtxs && v >= 0 && (size_t)v < tNumVtxs) {
-            sTmp[u].push_back(v);
-            tTmp[v].push_back(u);
+        int32_t s = e.first, t = e.second;
+        if (s >= 0 && static_cast<size_t>(s) < sNumVtxs && t >= 0 && static_cast<size_t>(t) < tNumVtxs) {
+            sTmp[s].push_back(t);
+            tTmp[t].push_back(s);
         }
     }
-    for (size_t u = 0; u < sNumVtxs; u++) {
-        std::sort(sTmp[u].begin(), sTmp[u].end());
-        sTmp[u].erase(std::unique(sTmp[u].begin(), sTmp[u].end()), sTmp[u].end());
+    for (size_t s = 0; s < sNumVtxs; s++) {
+        std::sort(sTmp[s].begin(), sTmp[s].end());
+        sTmp[s].erase(std::unique(sTmp[s].begin(), sTmp[s].end()), sTmp[s].end());
     }
-    for (size_t v = 0; v < tNumVtxs; v++) {
-        std::sort(tTmp[v].begin(), tTmp[v].end());
-        tTmp[v].erase(std::unique(tTmp[v].begin(), tTmp[v].end()), tTmp[v].end());
+    for (size_t t = 0; t < tNumVtxs; t++) {
+        std::sort(tTmp[t].begin(), tTmp[t].end());
+        tTmp[t].erase(std::unique(tTmp[t].begin(), tTmp[t].end()), tTmp[t].end());
     }
 
-    BipartiteGraph g;
-    g.sNumVtxs = sNumVtxs;
-    g.tNumVtxs = tNumVtxs;
+    BipartiteGraph graph;
+    graph.sNumVtxs = sNumVtxs;
+    graph.tNumVtxs = tNumVtxs;
 
-    g.sIdx.assign(sNumVtxs + 1, 0);
-    for (size_t u = 0; u < sNumVtxs; u++) g.sIdx[u + 1] = g.sIdx[u] + sTmp[u].size();
-    g.sAdj.resize(g.sIdx[sNumVtxs]);
-    for (size_t u = 0; u < sNumVtxs; u++)
-        std::copy(sTmp[u].begin(), sTmp[u].end(), g.sAdj.begin() + g.sIdx[u]);
+    graph.sIdx.assign(sNumVtxs + 1, 0);
+    for (size_t s = 0; s < sNumVtxs; s++)
+        graph.sIdx[s + 1] = graph.sIdx[s] + sTmp[s].size();
+    graph.sAdj.resize(graph.sIdx[sNumVtxs]);
+    for (size_t s = 0; s < sNumVtxs; s++)
+        std::copy(sTmp[s].begin(), sTmp[s].end(), graph.sAdj.begin() + graph.sIdx[s]);
 
-    g.tIdx.assign(tNumVtxs + 1, 0);
-    for (size_t v = 0; v < tNumVtxs; v++) g.tIdx[v + 1] = g.tIdx[v] + tTmp[v].size();
-    g.tAdj.resize(g.tIdx[tNumVtxs]);
-    for (size_t v = 0; v < tNumVtxs; v++)
-        std::copy(tTmp[v].begin(), tTmp[v].end(), g.tAdj.begin() + g.tIdx[v]);
+    graph.tIdx.assign(tNumVtxs + 1, 0);
+    for (size_t t = 0; t < tNumVtxs; t++)
+        graph.tIdx[t + 1] = graph.tIdx[t] + tTmp[t].size();
+    graph.tAdj.resize(graph.tIdx[tNumVtxs]);
+    for (size_t t = 0; t < tNumVtxs; t++)
+        std::copy(tTmp[t].begin(), tTmp[t].end(), graph.tAdj.begin() + graph.tIdx[t]);
 
-    g.numEdgs = g.sIdx[sNumVtxs];
-    return g;
+    graph.numEdgs = graph.sIdx[sNumVtxs];
+    return graph;
 }
 
 /* ---------- BipartiteMatching construction ---------- */
 
-BipartiteMatching emptyBipartiteMatching(const BipartiteGraph& g) {
-    BipartiteMatching m;
-    m.sNumVtxs = g.sNumVtxs;
-    m.tNumVtxs = g.tNumVtxs;
-    m.numEdgs = 0;
-    m.sMate.assign(g.sNumVtxs, NIL);
-    m.tMate.assign(g.tNumVtxs, NIL);
-    return m;
+BipartiteMatching emptyBipartiteMatching(const BipartiteGraph& graph) {
+    BipartiteMatching matching;
+    matching.sNumVtxs = graph.sNumVtxs;
+    matching.tNumVtxs = graph.tNumVtxs;
+    matching.numEdgs = 0;
+    matching.sMate.assign(graph.sNumVtxs, NIL);
+    matching.tMate.assign(graph.tNumVtxs, NIL);
+    return matching;
 }
 
 /* ---------- Greedy initial matching: simple ---------- */
 
-int32_t greedyInit(const BipartiteGraph& g, BipartiteMatching& m) {
-    int32_t cnt = 0;
-    for (size_t u = 0; u < g.sNumVtxs; u++) {
-        if (m.sMate[u] != NIL) continue;
-        size_t s = g.sIdx[u], e = g.sIdx[u + 1];
-        for (size_t j = s; j < e; j++) {
-            int32_t v = g.sAdj[j];
-            if (m.tMate[v] == NIL) {
-                m.sMate[u] = v;
-                m.tMate[v] = (int32_t)u;
-                cnt++;
+int32_t greedyInit(const BipartiteGraph& graph, BipartiteMatching& matching) {
+    int32_t numEdgs = 0;
+    for (size_t s = 0; s < graph.sNumVtxs; s++) {
+        if (matching.sMate[s] != NIL) continue;
+        size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
+        for (size_t k = sBegin; k < sEnd; k++) {
+            int32_t t = graph.sAdj[k];
+            if (matching.tMate[t] == NIL) {
+                matching.sMate[s] = t;
+                matching.tMate[t] = static_cast<int32_t>(s);
+                numEdgs++;
                 break;
             }
         }
     }
-    m.numEdgs += cnt;
-    return cnt;
+    matching.numEdgs += numEdgs;
+    return numEdgs;
 }
 
 /* ---------- Greedy initial matching: min-degree ---------- */
 
-int32_t greedyInitMd(const BipartiteGraph& g, BipartiteMatching& m) {
-    int32_t cnt = 0;
-    std::vector<int32_t> deg(g.tNumVtxs, 0);
-    for (size_t u = 0; u < g.sNumVtxs; u++) {
-        size_t s = g.sIdx[u], e = g.sIdx[u + 1];
-        for (size_t j = s; j < e; j++) deg[g.sAdj[j]]++;
+int32_t greedyInitMd(const BipartiteGraph& graph, BipartiteMatching& matching) {
+    int32_t numEdgs = 0;
+    std::vector<int32_t> deg(graph.tNumVtxs, 0);
+    for (size_t s = 0; s < graph.sNumVtxs; s++) {
+        size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
+        for (size_t k = sBegin; k < sEnd; k++) deg[graph.sAdj[k]]++;
     }
-    std::vector<int32_t> order(g.sNumVtxs);
-    for (size_t i = 0; i < g.sNumVtxs; i++) order[i] = (int32_t)i;
-    std::sort(order.begin(), order.end(), [&](int32_t a, int32_t b){
-        size_t da = g.sIdx[a + 1] - g.sIdx[a];
-        size_t db = g.sIdx[b + 1] - g.sIdx[b];
-        return da < db || (da == db && a < b);
+    std::vector<int32_t> sOrder(graph.sNumVtxs);
+    for (size_t s = 0; s < graph.sNumVtxs; s++) sOrder[s] = static_cast<int32_t>(s);
+    /* Sort s-vertices in increasing order of degree, breaking ties by vertex label. */
+    std::sort(sOrder.begin(), sOrder.end(), [&](int32_t s1, int32_t s2){
+        size_t s1Deg = graph.sIdx[s1 + 1] - graph.sIdx[s1];
+        size_t s2Deg = graph.sIdx[s2 + 1] - graph.sIdx[s2];
+        return s1Deg < s2Deg || (s1Deg == s2Deg && s1 < s2);
     });
-    for (int32_t u : order) {
-        if (m.sMate[u] != NIL) continue;
+    for (int32_t s : sOrder) {
+        if (matching.sMate[s] != NIL) continue;
         int32_t best = NIL, bestDeg = INT_MAX;
-        size_t s = g.sIdx[u], e = g.sIdx[u + 1];
-        for (size_t j = s; j < e; j++) {
-            int32_t v = g.sAdj[j];
-            if (m.tMate[v] == NIL && deg[v] < bestDeg) {
-                best = v;
-                bestDeg = deg[v];
+        size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
+        for (size_t k = sBegin; k < sEnd; k++) {
+            int32_t t = graph.sAdj[k];
+            if (matching.tMate[t] == NIL && deg[t] < bestDeg) {
+                best = t;
+                bestDeg = deg[t];
             }
         }
         if (best != NIL) {
-            m.sMate[u] = best;
-            m.tMate[best] = u;
-            cnt++;
+            matching.sMate[s] = best;
+            matching.tMate[best] = s;
+            numEdgs++;
         }
     }
-    m.numEdgs += cnt;
-    return cnt;
+    matching.numEdgs += numEdgs;
+    return numEdgs;
 }
 
 /* ---------- HK BFS ---------- */
 
-static bool bfs(const BipartiteGraph& g, const BipartiteMatching& m, HKHState& s) {
-    std::vector<int32_t> queue(g.sNumVtxs);
-    int32_t qh = 0, qt = 0;
+static bool bfs(const BipartiteGraph& graph, const BipartiteMatching& matching, HKIState& state) {
+    std::vector<int32_t> sPrcbQue(graph.sNumVtxs);
+    int32_t queHead = 0, queTail = 0;
 
-    for (size_t u = 0; u < g.sNumVtxs; u++) {
-        if (m.sMate[u] == NIL) { s.dist[u] = 0; queue[qt++] = (int32_t)u; }
-        else s.dist[u] = INT_MAX;
+    for (size_t s = 0; s < graph.sNumVtxs; s++) {
+        if (matching.sMate[s] == NIL) { state.sLevel[s] = 0; sPrcbQue[queTail++] = static_cast<int32_t>(s); }
+        else state.sLevel[s] = INT_MAX;
     }
-    s.dist[g.sNumVtxs] = INT_MAX;  /* NIL sentinel */
+    state.sLevel[graph.sNumVtxs] = INT_MAX;  /* NIL sentinel */
 
-    while (qh < qt) {
-        int32_t u = queue[qh++];
-        if (s.dist[u] < s.dist[g.sNumVtxs]) {
-            size_t st = g.sIdx[u], en = g.sIdx[u + 1];
-            for (size_t j = st; j < en; j++) {
-                int32_t v = g.sAdj[j];
-                int32_t pn = (m.tMate[v] == NIL) ? (int32_t)g.sNumVtxs : m.tMate[v];
-                if (s.dist[pn] == INT_MAX) {
-                    s.dist[pn] = s.dist[u] + 1;
-                    if (m.tMate[v] != NIL) queue[qt++] = m.tMate[v];
+    while (queHead < queTail) {
+        int32_t s = sPrcbQue[queHead++];
+        if (state.sLevel[s] < state.sLevel[graph.sNumVtxs]) {
+            size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
+            for (size_t k = sBegin; k < sEnd; k++) {
+                int32_t t = graph.sAdj[k];
+                int32_t ss = (matching.tMate[t] == NIL) ? static_cast<int32_t>(graph.sNumVtxs) : matching.tMate[t];
+                if (state.sLevel[ss] == INT_MAX) {
+                    state.sLevel[ss] = state.sLevel[s] + 1;
+                    if (matching.tMate[t] != NIL) sPrcbQue[queTail++] = matching.tMate[t];
                 }
             }
         }
     }
-    return s.dist[g.sNumVtxs] != INT_MAX;
+    return state.sLevel[graph.sNumVtxs] != INT_MAX;
 }
 
 /*
  * DFS: iterative with edge index.
  *
- * edgeIdx[u] is an offset WITHIN u's adjacency range [sIdx[u], sIdx[u+1]).
- * So the "current candidate edge" is sAdj[sIdx[u] + edgeIdx[u]].
+ * state.sIdx[s] is an offset WITHIN s's adjacency range [graph.sIdx[s], graph.sIdx[s+1]).
+ * So the "current candidate edge" is graph.sAdj[graph.sIdx[s] + state.sIdx[s]].
  */
-static bool dfs(int32_t root, const BipartiteGraph& g, BipartiteMatching& m, HKHState& s) {
-    s.stkTop = 0;
-    s.stkU[0] = root;
-    s.stkTop = 1;
+static bool dfs(int32_t sFirst, const BipartiteGraph& graph,
+                BipartiteMatching& matching, HKIState& state) {
+    state.stkTop = 0;
+    state.sPrcbStk[state.stkTop++] = sFirst;
 
-    while (s.stkTop > 0) {
-        int32_t u = s.stkU[s.stkTop - 1];
-        size_t st = g.sIdx[u], en = g.sIdx[u + 1];
-        int32_t sz = (int32_t)(en - st);
+    while (state.stkTop > 0) {
+        int32_t s = state.sPrcbStk[state.stkTop - 1];
+        size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
+        int32_t sNumEdgs = static_cast<int32_t>(sEnd - sBegin);
 
         bool pushed = false;
-        while (s.edgeIdx[u] < sz) {
-            int32_t v = g.sAdj[st + s.edgeIdx[u]];
-            int32_t pn = (m.tMate[v] == NIL) ? (int32_t)g.sNumVtxs : m.tMate[v];
-            if (s.dist[pn] != s.dist[u] + 1) {
-                s.edgeIdx[u]++;
+        while (state.sIdx[s] < sNumEdgs) {
+            int32_t t = graph.sAdj[sBegin + state.sIdx[s]];
+            int32_t ss = (matching.tMate[t] == NIL) ? static_cast<int32_t>(graph.sNumVtxs) : matching.tMate[t];
+            if (state.sLevel[ss] != state.sLevel[s] + 1) {
+                state.sIdx[s]++;
                 continue;
             }
 
-            s.stkV[s.stkTop - 1] = v;
-            s.edgeIdx[u]++;
+            state.tPrcbStk[state.stkTop - 1] = t;
+            state.sIdx[s]++;
 
-            if (m.tMate[v] == NIL) {
+            if (matching.tMate[t] == NIL) {
                 /* Found augmenting path — augment all the way back */
-                for (int32_t d = s.stkTop - 1; d >= 0; d--) {
-                    m.tMate[s.stkV[d]] = s.stkU[d];
-                    m.sMate[s.stkU[d]] = s.stkV[d];
+                for (int32_t k = state.stkTop - 1; k >= 0; k--) {
+                    matching.tMate[state.tPrcbStk[k]] = state.sPrcbStk[k];
+                    matching.sMate[state.sPrcbStk[k]] = state.tPrcbStk[k];
                 }
                 return true;
             }
 
-            s.stkU[s.stkTop] = m.tMate[v];
-            s.stkTop++;
+            state.sPrcbStk[state.stkTop++] = matching.tMate[t];
             pushed = true;
             break;
         }
 
         if (!pushed) {
-            s.dist[u] = INT_MAX;
-            s.stkTop--;
+            state.sLevel[s] = INT_MAX;
+            state.stkTop--;
         }
     }
     return false;
 }
 
-/* ---------- Top-level Hopcroft-Karp Hybrid ---------- */
+/* ---------- Top-level Hopcroft-Karp Iterative ---------- */
 
-void hopcroftKarpHybrid(const BipartiteGraph& g, BipartiteMatching& m) {
-    HKHState s;
-    s.dist.assign(g.sNumVtxs + 1, 0);
-    s.edgeIdx.assign(g.sNumVtxs, 0);
-    s.stkU.assign(g.sNumVtxs, 0);
-    s.stkV.assign(g.sNumVtxs, 0);
-    s.stkTop = 0;
+int32_t hkIterative(const BipartiteGraph& graph, BipartiteMatching& matching) {
+    HKIState state;
+    state.sLevel.assign(graph.sNumVtxs + 1, 0);
+    state.sIdx.assign(graph.sNumVtxs, 0);
+    state.sPrcbStk.assign(graph.sNumVtxs, 0);
+    state.tPrcbStk.assign(graph.sNumVtxs, 0);
+    state.stkTop = 0;
 
-    int32_t phases = 0;
+    int32_t numPhases = 0;
     int32_t newEdgs = 0;
-    while (bfs(g, m, s)) {
-        phases++;
-        for (size_t u = 0; u < g.sNumVtxs; u++) s.edgeIdx[u] = 0;
-        for (size_t u = 0; u < g.sNumVtxs; u++) {
-            if (m.sMate[u] == NIL && dfs((int32_t)u, g, m, s)) {
+    while (bfs(graph, matching, state)) {
+        numPhases++;
+        for (size_t s = 0; s < graph.sNumVtxs; s++) state.sIdx[s] = 0;
+        for (size_t s = 0; s < graph.sNumVtxs; s++) {
+            if (matching.sMate[s] == NIL && dfs(static_cast<int32_t>(s), graph, matching, state)) {
                 newEdgs++;
             }
         }
     }
-    m.numEdgs += newEdgs;
-    printf("Phases: %d\n", phases);
+    matching.numEdgs += newEdgs;
+    return numPhases;
 }
 
 /* ---------- Validation ---------- */
 
-void validateBipartiteMatching(const BipartiteGraph& g, const BipartiteMatching& m) {
+void validateBipartiteMatching(const BipartiteGraph& graph, const BipartiteMatching& matching) {
     int32_t errors = 0;
     int32_t matchedS = 0, matchedT = 0;
 
-    for (size_t u = 0; u < g.sNumVtxs; u++) {
-        if (m.sMate[u] != NIL) {
+    for (size_t s = 0; s < graph.sNumVtxs; s++) {
+        if (matching.sMate[s] != NIL) {
             matchedS++;
-            int32_t v = m.sMate[u];
-            if (v < 0 || (size_t)v >= g.tNumVtxs) {
-                fprintf(stderr, "ERROR: sMate[%zu] = %d out of range\n", u, v);
+            int32_t t = matching.sMate[s];
+            if (t < 0 || static_cast<size_t>(t) >= graph.tNumVtxs) {
+                fprintf(stderr, "ERROR: sMate[%zu] = %d out of range\n", s, t);
                 errors++;
-            } else if (m.tMate[v] != (int32_t)u) {
-                fprintf(stderr, "ERROR: sMate[%zu]=%d but tMate[%d]=%d\n", u, v, v, m.tMate[v]);
+            } else if (matching.tMate[t] != static_cast<int32_t>(s)) {
+                fprintf(stderr, "ERROR: sMate[%zu]=%d but tMate[%d]=%d\n", s, t, t, matching.tMate[t]);
                 errors++;
             } else {
-                size_t st = g.sIdx[u], en = g.sIdx[u + 1];
-                if (!std::binary_search(g.sAdj.begin() + st, g.sAdj.begin() + en, v)) {
-                    fprintf(stderr, "ERROR: edge (%zu,%d) not in graph\n", u, v);
+                size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
+                if (!std::binary_search(graph.sAdj.begin() + sBegin,
+                                        graph.sAdj.begin() + sEnd, t)) {
+                    fprintf(stderr, "ERROR: edge (%zu,%d) not in graph\n", s, t);
                     errors++;
                 }
             }
         }
     }
-    for (size_t v = 0; v < g.tNumVtxs; v++) {
-        if (m.tMate[v] != NIL) matchedT++;
+    for (size_t t = 0; t < graph.tNumVtxs; t++) {
+        if (matching.tMate[t] != NIL) matchedT++;
     }
 
     printf("\n=== Validation Report ===\n");
-    printf("Matching size: %zu\n", m.numEdgs);
+    printf("Matching size: %zu\n", matching.numEdgs);
     printf("S matched: %d, T matched: %d\n", matchedS, matchedT);
     printf("%s\n", errors > 0 ? "VALIDATION FAILED" : "VALIDATION PASSED");
     printf("=========================\n\n");
@@ -308,8 +311,8 @@ void validateBipartiteMatching(const BipartiteGraph& g, const BipartiteMatching&
 /* ---------- Main ---------- */
 
 int main(int argc, char* argv[]) {
-    printf("Hopcroft-Karp Hybrid Algorithm - C++ Implementation (CSR)\n");
-    printf("===========================================================\n\n");
+    printf("Hopcroft-Karp Iterative Algorithm - C++ Implementation (CSR)\n");
+    printf("==============================================================\n\n");
 
     if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
     int greedyMode = 0;
@@ -329,39 +332,40 @@ int main(int argc, char* argv[]) {
     std::vector<std::pair<int32_t,int32_t>> edges;
     edges.reserve(numEdgsIn);
     for (int i = 0; i < numEdgsIn; i++) {
-        int u, v;
-        if (fscanf(f, "%d %d", &u, &v) != 2) break;
-        edges.push_back({(int32_t)u, (int32_t)v});
+        int s, t;
+        if (fscanf(f, "%d %d", &s, &t) != 2) break;
+        edges.push_back({static_cast<int32_t>(s), static_cast<int32_t>(t)});
     }
     fclose(f);
 
     printf("Graph: %d s-vertices, %d t-vertices, %zu edges\n",
            sNumVtxs, tNumVtxs, edges.size());
 
-    BipartiteGraph bipartiteGraph = buildBipartiteGraph(sNumVtxs, tNumVtxs, edges);
-    BipartiteMatching bipartiteMatching = emptyBipartiteMatching(bipartiteGraph);
+    BipartiteGraph graph = buildBipartiteGraph(sNumVtxs, tNumVtxs, edges);
+    BipartiteMatching matching = emptyBipartiteMatching(graph);
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
     int32_t greedySize = 0;
-    if (greedyMode == 1) greedySize = greedyInit(bipartiteGraph, bipartiteMatching);
-    else if (greedyMode == 2) greedySize = greedyInitMd(bipartiteGraph, bipartiteMatching);
+    if (greedyMode == 1) greedySize = greedyInit(graph, matching);
+    else if (greedyMode == 2) greedySize = greedyInitMd(graph, matching);
 
-    hopcroftKarpHybrid(bipartiteGraph, bipartiteMatching);
+    int32_t numPhases = hkIterative(graph, matching);
 
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    validateBipartiteMatching(bipartiteGraph, bipartiteMatching);
+    validateBipartiteMatching(graph, matching);
 
-    printf("Matching size: %zu\n", bipartiteMatching.numEdgs);
+    printf("Phases: %d\n", numPhases);
+    printf("Matching size: %zu\n", matching.numEdgs);
     if (greedyMode > 0) {
         printf("Greedy init size: %d\n", greedySize);
-        if (bipartiteMatching.numEdgs > 0)
-            printf("Greedy/Final: %.2f%%\n", 100.0 * greedySize / bipartiteMatching.numEdgs);
+        if (matching.numEdgs > 0)
+            printf("Greedy/Final: %.2f%%\n", 100.0 * greedySize / matching.numEdgs);
         else
             printf("Greedy/Final: NA\n");
     }
     printf("Time: %ld ms\n",
-           (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+           static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()));
     return 0;
 }

@@ -3,18 +3,23 @@
  * O(E * sqrt(V)) Maximum Cardinality Matching.
  *
  * Edge model: each undirected edge gets a unique ID with fixed
- * (src, tgt) endpoints. Adjacency is stored as CSR (offsets + flat
- * edge ID buffer), not as vector-of-vectors. Iteration sites use
- * index-based loops to iterate over edge IDs incident to a vertex.
- * The H-side structure (contracted_into) remains a vector-of-vectors
+ * (src, tgt) endpoints. The G2State carries sVtx/tVtx arrays and
+ * a CSR-by-edge-id (idx + edgAdj) so iteration sites loop
+ * over edge IDs incident to a vertex. This supports the exact
+ * Phase 2 edge semantics from LEDA:
+ *   G.source(e) -> sVtx[e]
+ *   G.target(e) -> tVtx[e]
+ *   G.opposite(v, e) -> (sVtx[e]==v ? tVtx[e] : sVtx[e])
+ *
+ * The H-side structure (contractedInto) remains a vector-of-vectors
  * because it grows dynamically during each phase.
  *
- * This enables exact translation of LEDA's Phase 2 edge semantics:
- *   G.source(e) -> esrc[e]
- *   G.target(e) -> etgt[e]
- *   G.opposite(v, e) -> (esrc[e]==v ? etgt[e] : esrc[e])
- *
  * All integers. No floating point in algorithm. No dependencies.
+ *
+ * Three-object architecture:
+ *   GeneralGraph    -- const input (CSR adjacency by neighbor vertex)
+ *   GeneralMatching -- output (mate array + size)
+ *   G2State         -- algorithm scratch (everything else)
  */
 
 #include <cstdio>
@@ -24,623 +29,711 @@
 #include <string>
 #include <climits>
 #include <chrono>
+#include <utility>
 
 static const int NIL = -1;
 enum { EVEN = 0, ODD = 1, UNLABELED = 2 };
 
-struct GabowMCM {
-    int n, m;
-    int greedy_size = 0;
+/* ====================================================================
+ *                          GeneralGraph (input)
+ * ==================================================================== */
 
-    /* Edge storage: esrc[eid], etgt[eid] are fixed endpoints */
-    std::vector<int> esrc, etgt;
-    /* adj as CSR:
-     *   adj_off[v] .. adj_off[v+1] is the range of edge IDs incident to v
-     *   adj_edges[j] is the edge ID at position j */
-    std::vector<int> adj_edges;
-    std::vector<int> adj_off;
+struct GeneralGraph {
+    size_t numVtxs;
+    size_t numEdgs;                      // number of undirected edges
+    std::vector<size_t>  idx;            // row-pointer, length numVtxs+1
+    std::vector<int32_t> adj;            // length 2*numEdgs, neighbor vertex IDs
+};
+
+/* Build from a list of (u, v) edges. Each undirected edge is
+ * recorded twice (once at each endpoint); per-vertex adjacency
+ * rows are sorted and deduplicated explicitly so adj is always
+ * sorted within each row. Self-loops and out-of-range endpoints
+ * are discarded. */
+GeneralGraph buildGeneralGraph(size_t numVtxs,
+                               const std::vector<std::pair<int32_t,int32_t>>& edges) {
+    std::vector<std::vector<int32_t>> tmp(numVtxs);
+    for (auto& e : edges) {
+        int32_t u = e.first, v = e.second;
+        if (u >= 0 && static_cast<size_t>(u) < numVtxs &&
+            v >= 0 && static_cast<size_t>(v) < numVtxs && u != v) {
+            tmp[u].push_back(v);
+            tmp[v].push_back(u);
+        }
+    }
+    for (size_t v = 0; v < numVtxs; v++) {
+        std::sort(tmp[v].begin(), tmp[v].end());
+        tmp[v].erase(std::unique(tmp[v].begin(), tmp[v].end()), tmp[v].end());
+    }
+
+    GeneralGraph graph;
+    graph.numVtxs = numVtxs;
+
+    graph.idx.assign(numVtxs + 1, 0);
+    for (size_t v = 0; v < numVtxs; v++)
+        graph.idx[v + 1] = graph.idx[v] + tmp[v].size();
+    graph.adj.resize(graph.idx[numVtxs]);
+    for (size_t v = 0; v < numVtxs; v++)
+        std::copy(tmp[v].begin(), tmp[v].end(), graph.adj.begin() + graph.idx[v]);
+
+    /* Each undirected edge is stored twice (once per endpoint),
+     * so the total adj length is 2 * numEdgs. */
+    graph.numEdgs = graph.idx[numVtxs] / 2;
+    return graph;
+}
+
+/* ====================================================================
+ *                       GeneralMatching (output)
+ * ==================================================================== */
+
+struct GeneralMatching {
     std::vector<int> mate;
+    size_t numEdgs;
+};
 
-    /* Helpers */
-    int opposite(int v, int eid) { return esrc[eid] == v ? etgt[eid] : esrc[eid]; }
-    int w_edge(int eid) { return (mate[esrc[eid]] == etgt[eid]) ? 2 : 0; }
+GeneralMatching emptyGeneralMatching(const GeneralGraph& graph) {
+    GeneralMatching matching;
+    matching.mate.assign(graph.numVtxs, NIL);
+    matching.numEdgs = 0;
+    return matching;
+}
 
-    /* ---- Phase 1 ---- */
-    std::vector<int> label;
-    std::vector<int> parent;             /* parent vertex in alternating tree */
-    std::vector<int> source_bridge, target_bridge;
-    std::vector<int> bd, bDelta;
+/* ====================================================================
+ *                          G2State (scratch)
+ * ==================================================================== */
 
-    std::vector<int> base_par;
-    int find_base(int v) {
-        while (base_par[v] != v) { base_par[v] = base_par[base_par[v]]; v = base_par[v]; }
-        return v;
-    }
+struct G2State {
+    /* Edge storage: sVtx[eid], tVtx[eid] are fixed endpoints */
+    std::vector<int32_t> sVtx, tVtx;
+    /* edgAdj: vertex -> edge IDs incident to it. Uses graph.idx as
+     * the row pointer (graph.idx[v]..graph.idx[v+1] gives the same
+     * row range, since each undirected edge contributes once to
+     * each endpoint's adjacency in both views). */
+    std::vector<int32_t> edgAdj;
 
-    std::vector<int> dbase_par, dbase_rank;
-    int find_dbase(int v) {
-        while (dbase_par[v] != v) { dbase_par[v] = dbase_par[dbase_par[v]]; v = dbase_par[v]; }
-        return v;
-    }
-    void union_dbase(int a, int b) {
-        a = find_dbase(a); b = find_dbase(b);
-        if (a == b) return;
-        if (dbase_rank[a] < dbase_rank[b]) std::swap(a, b);
-        dbase_par[b] = a;
-        if (dbase_rank[a] == dbase_rank[b]) dbase_rank[a]++;
-    }
-    void make_rep_dbase(int v) {
-        int r = find_dbase(v);
-        if (r != v) { dbase_par[r] = v; dbase_par[v] = v; }
-    }
+    /* ---- Phase 1: alternating tree ---- */
+    std::vector<int32_t> label;
+    std::vector<int32_t> parent;          /* parent vertex in alternating tree */
+    std::vector<int32_t> sourceBridge, targetBridge;
 
-    int max_pq;
-    std::vector<std::vector<int>> L;  /* L[d] = edge IDs becoming tight at Delta=d */
+    /* ---- Phase 1: dual checkpoints ---- */
+    std::vector<int32_t> bd, bDelta;
+    int32_t Delta;
 
+    /* ---- Phase 1: blossom DSU (current) ---- */
+    std::vector<int32_t> basePar;
+
+    /* ---- Phase 1/2: blossom DSU (snapshotted across H-construction) ---- */
+    std::vector<int32_t> dbasePar, dbaseRank;
+
+    /* ---- Phase 1: bucket priority queue ---- */
+    int32_t maxPq;
+    std::vector<std::vector<int32_t>> L;  /* L[d] = edge IDs becoming tight at Delta=d */
+    int32_t maxDeltaUsed;
+
+    /* ---- Phase 1: augmenting-path-vs-blossom walking trick ---- */
     std::vector<double> path1, path2;
     double strue;
 
-    std::vector<int> tree_nodes;
-    int Delta;
+    /* ---- Phase 1: visited tracking ---- */
+    std::vector<int32_t> treeNodes;
+    std::vector<int32_t> prevTreeNodes;
 
-    /* ---- H state ---- */
-    std::vector<int> rep;
-    std::vector<int> mateH;
-    std::vector<bool> is_H;           /* per edge ID: is this edge in H? */
+    /* ---- Free vertex tracking ---- */
+    std::vector<int32_t> free_vertices;
+    bool freeListBuilt;
 
-    /* ---- Phase 2 ---- */
-    std::vector<int> labelH;
-    std::vector<int> parentH;         /* parentH[uh] = edge ID */
-    std::vector<int> bridgeH;         /* bridgeH[vh] = edge ID */
-    std::vector<int> dirH;            /* dirH[vh] = 1 or -1 */
-    std::vector<int> even_timeH;
-    int tH;
-    std::vector<std::vector<int>> contracted_into;
-    int size_of_M;
+    /* ---- H minor ---- */
+    std::vector<int32_t> rep;
+    std::vector<int32_t> mateH;
+    std::vector<bool>    isH;             /* per edge ID: is this edge in H? */
+    std::vector<std::vector<int32_t>> contractedInto;
 
-    GabowMCM(int n_, const std::vector<std::pair<int,int>>& edges) : n(n_), m(0), size_of_M(0) {
-        mate.assign(n, NIL);
-        label.assign(n, UNLABELED);
-        parent.assign(n, NIL);
-        source_bridge.assign(n, NIL);
-        target_bridge.assign(n, NIL);
-        bd.assign(n, 1);
-        bDelta.assign(n, 0);
-        base_par.resize(n);
-        for (int i = 0; i < n; i++) base_par[i] = i;
-        dbase_par.resize(n);
-        for (int i = 0; i < n; i++) dbase_par[i] = i;
-        dbase_rank.assign(n, 0);
-        max_pq = n / 2 + 2;
-        L.resize(max_pq);
-        path1.assign(n, 0.0);
-        path2.assign(n, 0.0);
-        strue = 0.0;
-        Delta = 0;
-        rep.resize(n);
-        mateH.assign(n, NIL);
-        labelH.assign(n, UNLABELED);
-        parentH.assign(n, NIL);
-        bridgeH.assign(n, NIL);
-        dirH.assign(n, 0);
-        even_timeH.assign(n, 0);
-        tH = 0;
-        max_delta_used = 0;
-        contracted_into.resize(n);
-
-        /* Build edge list with dedup */
-        std::vector<std::pair<int,int>> sorted_edges;
-        for (auto& e : edges) {
-            int u = e.first, v = e.second;
-            if (u >= 0 && u < n && v >= 0 && v < n && u != v) {
-                if (u > v) std::swap(u, v);
-                sorted_edges.push_back({u, v});
-            }
-        }
-        std::sort(sorted_edges.begin(), sorted_edges.end());
-        sorted_edges.erase(std::unique(sorted_edges.begin(), sorted_edges.end()),
-                           sorted_edges.end());
-
-        m = (int)sorted_edges.size();
-        esrc.resize(m);
-        etgt.resize(m);
-        for (int i = 0; i < m; i++) {
-            esrc[i] = sorted_edges[i].first;
-            etgt[i] = sorted_edges[i].second;
-        }
-
-        /* Build CSR adjacency: adj_off is prefix-sum of degrees,
-         * adj_edges holds edge IDs grouped by source vertex. */
-        adj_off.assign(n + 1, 0);
-        for (int i = 0; i < m; i++) {
-            adj_off[esrc[i] + 1]++;
-            adj_off[etgt[i] + 1]++;
-        }
-        for (int v = 0; v < n; v++) adj_off[v + 1] += adj_off[v];
-        adj_edges.resize(adj_off[n]);
-        /* tmp_pos tracks next write position per vertex during the fill */
-        std::vector<int> tmp_pos(adj_off.begin(), adj_off.begin() + n);
-        for (int i = 0; i < m; i++) {
-            adj_edges[tmp_pos[esrc[i]]++] = i;
-            adj_edges[tmp_pos[etgt[i]]++] = i;
-        }
-        is_H.assign(m, false);
-    }
-
-    /* ---- d(v): dual variable ---- */
-    int d(int v) {
-        int bv = find_base(v);
-        if (label[bv] == UNLABELED) return 1;
-        if (label[bv] == EVEN) return bd[v] - (Delta - bDelta[v]);
-        return bd[v] + (Delta - bDelta[v]);
-    }
-
-    /* ---- scan_edge: schedule edge into PQ ---- */
-    void scan_edge(int eid, int z) {
-        int u = opposite(z, eid);
-        if (mate[u] == z || label[find_base(u)] == ODD) return;
-        int p = d(z) + d(u);
-        int tight_at;
-        if (label[find_base(u)] == UNLABELED)
-            tight_at = Delta + p;
-        else
-            tight_at = Delta + p / 2;
-        if (tight_at >= 0 && tight_at < max_pq) {
-            L[tight_at].push_back(eid);
-            if (tight_at > max_delta_used) max_delta_used = tight_at;
-        }
-    }
-
-    /* ---- shrink_path ---- */
-    void shrink_path(int b, int x, int y,
-                     std::vector<std::pair<int,int>>& dunions) {
-        int v = find_base(x);
-        while (v != b) {
-            base_par[v] = b;
-            dunions.push_back({v, b});
-            v = mate[v];
-            base_par[v] = b;
-            dunions.push_back({v, b});
-            base_par[b] = b;
-            source_bridge[v] = x;
-            target_bridge[v] = y;
-            bd[v] = bd[v] + (Delta - bDelta[v]);
-            bDelta[v] = Delta;
-            {
-                int s = adj_off[v], e = adj_off[v + 1];
-                for (int j = s; j < e; j++)
-                    scan_edge(adj_edges[j], v);
-            }
-            v = find_base(parent[v]);
-        }
-        dunions.push_back({b, b});
-    }
-
-    int max_delta_used;  /* track highest Delta used for selective L clear */
-
-    /* Previous tree nodes for selective reset */
-    std::vector<int> prev_tree_nodes;
-
-    /* Free vertex tracking */
-    std::vector<int> free_vertices;
-    bool free_list_built = false;
-
-    void build_free_list() {
-        free_vertices.clear();
-        for (int v = 0; v < n; v++)
-            if (mate[v] == NIL) free_vertices.push_back(v);
-        free_list_built = true;
-    }
-
-    void update_free_list() {
-        /* Remove vertices that got matched since last time */
-        int j = 0;
-        for (int i = 0; i < (int)free_vertices.size(); i++)
-            if (mate[free_vertices[i]] == NIL)
-                free_vertices[j++] = free_vertices[i];
-        free_vertices.resize(j);
-    }
-
-    /* ================================================================ */
-    /*                          PHASE 1                                 */
-    /* ================================================================ */
-    bool phase_1() {
-        Delta = 0;
-        tree_nodes.clear();
-        /* Only clear L entries up to max_delta_used from previous phase */
-        int clear_limit = std::min(max_delta_used + 1, max_pq);
-        for (int i = 0; i < clear_limit; i++) L[i].clear();
-        max_delta_used = 0;
-        std::vector<std::pair<int,int>> dunions;
-
-        /* Reset only previous tree nodes.
-         * Constructor already set correct defaults for all arrays,
-         * so first call (prev_tree_nodes empty) needs no full reset. */
-        for (int v : prev_tree_nodes) {
-            base_par[v] = v;
-            dbase_par[v] = v;
-            dbase_rank[v] = 0;
-            label[v] = UNLABELED;
-            parent[v] = NIL;
-            source_bridge[v] = NIL;
-            target_bridge[v] = NIL;
-            bd[v] = 1;
-            bDelta[v] = 0;
-            {
-                int s = adj_off[v], e = adj_off[v + 1];
-                for (int j = s; j < e; j++)
-                    is_H[adj_edges[j]] = false;
-            }
-        }
-
-        /* Build or update free vertex list */
-        if (!free_list_built)
-            build_free_list();
-        else
-            update_free_list();
-
-        /* Label free vertices EVEN, then scan */
-        for (int v : free_vertices) {
-            label[v] = EVEN;
-            tree_nodes.push_back(v);
-        }
-        for (int v : free_vertices) {
-            int s = adj_off[v], e = adj_off[v + 1];
-            for (int j = s; j < e; j++)
-                scan_edge(adj_edges[j], v);
-        }
-
-        bool found_sap = false;
-
-        while (Delta <= max_delta_used) {
-            /* Skip empty levels */
-            while (Delta <= max_delta_used && L[Delta].empty()) Delta++;
-            if (Delta > max_delta_used) break;
-
-            int qi = 0;
-            while (qi < (int)L[Delta].size()) {
-                int eid = L[Delta][qi++];
-                int x = esrc[eid], y = etgt[eid];
-
-                /* Stale-entry guard: the priority queue schedules edges
-                 * based on predicted d-trajectories. A later label change
-                 * on either endpoint can invalidate the prediction. Every
-                 * label change re-scans and enqueues a fresh correct entry,
-                 * so discarding stale entries here loses no correct SAP. */
-                if (d(x) + d(y) != w_edge(eid)) continue;
-
-                if (label[find_base(x)] != EVEN) std::swap(x, y);
-                if (y == mate[x] || find_base(x) == find_base(y) ||
-                    label[find_base(y)] == ODD) continue;
-
-                if (label[find_base(y)] == UNLABELED) {
-                    int z = mate[y];
-                    bd[y] = 1; bDelta[y] = Delta;
-                    bd[z] = 1; bDelta[z] = Delta;
-                    parent[z] = y;
-                    parent[y] = x;
-                    label[y] = ODD;
-                    label[z] = EVEN;
-                    tree_nodes.push_back(y);
-                    tree_nodes.push_back(z);
-                    {
-                        int s = adj_off[z], e = adj_off[z + 1];
-                        for (int j = s; j < e; j++)
-                            scan_edge(adj_edges[j], z);
-                    }
-
-                } else if (label[find_base(y)] == EVEN) {
-                    strue += 1.0;
-                    int hx = find_base(x), hy = find_base(y);
-                    path1[hx] = strue; path2[hy] = strue;
-                    int lca = NIL;
-                    while (true) {
-                        if (path1[hy] == strue) { lca = hy; break; }
-                        if (path2[hx] == strue) { lca = hx; break; }
-                        bool hxr = (mate[hx] == NIL || parent[mate[hx]] == NIL);
-                        bool hyr = (mate[hy] == NIL || parent[mate[hy]] == NIL);
-                        if (hxr && hyr) break;
-                        if (!hxr) { hx = find_base(parent[mate[hx]]); path1[hx] = strue; }
-                        if (!hyr) { hy = find_base(parent[mate[hy]]); path2[hy] = strue; }
-                    }
-                    if (lca != NIL) {
-                        shrink_path(lca, x, y, dunions);
-                        shrink_path(lca, y, x, dunions);
-                    } else {
-                        found_sap = true;
-                    }
-                }
-            }
-            L[Delta].clear();
-
-            if (found_sap) {
-                /* Build H */
-                for (int v : tree_nodes) {
-                    contracted_into[find_dbase(v)].push_back(v);
-                    mateH[v] = NIL;
-                }
-                /* Mark tight edges */
-                for (int u : tree_nodes) {
-                    int uh = find_dbase(u);
-                    int s = adj_off[u], e = adj_off[u + 1];
-                    for (int j = s; j < e; j++) {
-                        int eid = adj_edges[j];
-                        int v = opposite(u, eid);
-                        int vh = find_dbase(v);
-                        if (uh != vh && d(u) + d(v) == w_edge(eid)) {
-                            is_H[eid] = true;
-                            if (w_edge(eid) == 2) {
-                                mateH[uh] = vh;
-                                mateH[vh] = uh;
-                            }
-                        }
-                    }
-                }
-                prev_tree_nodes = tree_nodes;
-                return true;
-            }
-
-            for (auto& [a, b] : dunions) {
-                if (a == b) make_rep_dbase(a);
-                else union_dbase(a, b);
-            }
-            dunions.clear();
-            Delta++;
-        }
-        prev_tree_nodes = tree_nodes;
-        return false;
-    }
-
-    /* ================================================================ */
-    /*                          PHASE 2                                 */
-    /* ================================================================ */
-
-    /* find_apHG: recursive DFS on H.
-     * Mechanical translation of LEDA. Edge IDs give exact semantics. */
-    int find_apHG(int vh) {
-        for (int v : contracted_into[vh]) {
-            int a_beg = adj_off[v], a_end = adj_off[v + 1];
-            for (int j = a_beg; j < a_end; j++) {
-                int eid = adj_edges[j];
-                if (!is_H[eid]) continue;
-                int w = opposite(v, eid);
-                /* LEDA: uh = rep[G.opposite(v, eh)] */
-                int uh = rep[w];
-                if (mateH[vh] == uh) continue;
-
-                if (labelH[uh] == UNLABELED) {
-                    int muh = mateH[uh];
-                    if (muh == NIL) {
-                        labelH[uh] = ODD;
-                        parentH[uh] = eid;
-                        return uh;
-                    }
-                    labelH[uh] = ODD;
-                    labelH[muh] = EVEN;
-                    parentH[uh] = eid;
-                    even_timeH[muh] = tH++;
-                    int s = find_apHG(muh);
-                    if (s != NIL) return s;
-
-                } else {
-                    int bh = find_dbase(vh);
-                    int zh = find_dbase(uh);
-                    if (even_timeH[bh] < even_timeH[zh]) {
-                        std::vector<int> tmp;
-                        std::vector<int> endpoints;
-                        while (zh != bh) {
-                            endpoints.push_back(zh);
-                            zh = mateH[zh];
-                            endpoints.push_back(zh);
-                            tmp.insert(tmp.begin(), zh);
-                            /* LEDA: zh = dbase(rep[rep[G.source(parentHG[zh])] == zh ?
-                             *   G.target(parentHG[zh]) : G.source(parentHG[zh])]) */
-                            int pe = parentH[zh];
-                            zh = find_dbase(rep[rep[esrc[pe]] == zh ? etgt[pe] : esrc[pe]]);
-                        }
-                        for (int nd : endpoints) union_dbase(nd, bh);
-                        make_rep_dbase(bh);
-                        for (int odd_node : tmp) {
-                            bridgeH[odd_node] = eid;
-                            /* LEDA: dirHG[zh] = (G.target(eh) == v ? 1 : -1) */
-                            dirH[odd_node] = (etgt[eid] == v) ? 1 : -1;
-                        }
-                        for (int odd_node : tmp) {
-                            int s = find_apHG(odd_node);
-                            if (s != NIL) return s;
-                        }
-                    }
-                }
-            }
-        }
-        return NIL;
-    }
-
-    /* find_path_in_HG: trace augmenting path in H from vh to uh.
-     * Exact LEDA translation using edge IDs. */
-    void find_path_in_HG(std::vector<int>& path, int vh, int uh) {
-        if (vh == uh) return;
-        if (labelH[vh] == EVEN) {
-            int mvh = mateH[vh];
-            int pe = parentH[mvh];
-            path.push_back(pe);
-            /* LEDA: rep[rep[G.source(e)] == mvh ? G.target(e) : G.source(e)] */
-            int next = rep[rep[esrc[pe]] == mvh ? etgt[pe] : esrc[pe]];
-            find_path_in_HG(path, next, uh);
-        } else {
-            /* ODD: use bridge */
-            int be = bridgeH[vh];
-            /* LEDA: dir==1 ? source : target goes to mate side
-             *        dir==1 ? target : source goes to uh side */
-            int mate_side, uh_side;
-            if (dirH[vh] == 1) {
-                mate_side = rep[esrc[be]];
-                uh_side = rep[etgt[be]];
-            } else {
-                mate_side = rep[etgt[be]];
-                uh_side = rep[esrc[be]];
-            }
-            int mt = (mateH[vh] != NIL) ? rep[mateH[vh]] : vh;
-            find_path_in_HG(path, mate_side, mt);
-            path.push_back(be);
-            find_path_in_HG(path, uh_side, uh);
-        }
-    }
-
-    /* find_path_in_G: unfold within Phase 1 blossom */
-    void find_path_in_G(std::vector<std::pair<int,int>>& pairs, int v, int u) {
-        if (v == u) return;
-        if (label[v] == EVEN) {
-            pairs.push_back({mate[v], parent[mate[v]]});
-            find_path_in_G(pairs, parent[mate[v]], u);
-        } else {
-            find_path_in_G(pairs, source_bridge[v], mate[v]);
-            pairs.push_back({source_bridge[v], target_bridge[v]});
-            find_path_in_G(pairs, target_bridge[v], u);
-        }
-    }
-
-
-    /* augmentG: unfold H-path edges to G, augment matching */
-    void augmentG(const std::vector<int>& h_edge_ids) {
-        std::vector<std::pair<int,int>> pairs;
-        for (int eid : h_edge_ids) {
-            int u = esrc[eid], v = etgt[eid];
-            pairs.push_back({u, v});
-            find_path_in_G(pairs, u, rep[u]);
-            find_path_in_G(pairs, v, rep[v]);
-        }
-        for (auto& [a, b] : pairs) {
-            mate[a] = b; mate[b] = a;
-        }
-        size_of_M++;
-    }
-
-    void phase_2() {
-        tH = 0;
-        /* DO NOT reset dbase here. LEDA keeps Phase 1 dbase state
-         * and adds Phase 2 unions on top. The dbase.split(T) only
-         * happens at the start of the NEXT Phase 1. */
-        for (int v : tree_nodes) {
-            rep[v] = find_dbase(v);
-            labelH[v] = UNLABELED;
-            parentH[v] = NIL;
-            bridgeH[v] = NIL;
-            dirH[v] = 0;
-            even_timeH[v] = 0;
-        }
-
-        std::vector<std::vector<int>> all_paths;
-
-        for (int vh : tree_nodes) {
-            if (vh != rep[vh]) continue;
-            if (labelH[vh] == UNLABELED && mateH[vh] == NIL) {
-                labelH[vh] = EVEN;
-                even_timeH[vh] = tH++;
-                int found = find_apHG(vh);
-                if (found != NIL) {
-                    std::vector<int> path;
-                    int pe = parentH[found];
-                    path.push_back(pe);
-                    int next = rep[rep[esrc[pe]] == found ? etgt[pe] : esrc[pe]];
-                    find_path_in_HG(path, next, vh);
-                    all_paths.push_back(std::move(path));
-                }
-            }
-        }
-
-        for (auto& p : all_paths)
-            augmentG(p);
-
-
-        for (int v : tree_nodes) {
-            contracted_into[v].clear();
-            mateH[v] = NIL;
-        }
-    }
-
-    /* ================================================================ */
-    int greedy_init() {
-        int cnt = 0;
-        for (int u = 0; u < n; u++) {
-            if (mate[u] != NIL) continue;
-            int s = adj_off[u], e = adj_off[u + 1];
-            for (int j = s; j < e; j++) {
-                int eid = adj_edges[j];
-                int v = opposite(u, eid);
-                if (mate[v] == NIL) { mate[u] = v; mate[v] = u; cnt++; break; }
-            }
-        }
-        return cnt;
-    }
-
-    int greedy_init_md() {
-        int cnt = 0;
-        std::vector<int> deg(n, 0);
-        for (int i = 0; i < m; i++) { deg[esrc[i]]++; deg[etgt[i]]++; }
-        std::vector<int> order(n);
-        for (int i = 0; i < n; i++) order[i] = i;
-        std::sort(order.begin(), order.end(), [&](int a, int b){
-            return deg[a] < deg[b] || (deg[a] == deg[b] && a < b);
-        });
-        for (int u : order) {
-            if (mate[u] != NIL) continue;
-            int best = -1, best_deg = INT_MAX;
-            int s = adj_off[u], e = adj_off[u + 1];
-            for (int j = s; j < e; j++) {
-                int eid = adj_edges[j];
-                int v = opposite(u, eid);
-                if (mate[v] == NIL && deg[v] < best_deg) { best = v; best_deg = deg[v]; }
-            }
-            if (best >= 0) { mate[u] = best; mate[best] = u; cnt++; }
-        }
-        return cnt;
-    }
-
-    std::vector<std::pair<int,int>> solve(int greedy_mode = 0) {
-        if (greedy_mode == 1) { greedy_size = greedy_init(); size_of_M = greedy_size; }
-        else if (greedy_mode == 2) { greedy_size = greedy_init_md(); size_of_M = greedy_size; }
-
-        int phase_count = 0;
-        while (true) {
-            bool has_sap = phase_1();
-            if (!has_sap) break;
-            phase_2();
-            phase_count++;
-        }
-        printf("Phases: %d\n", phase_count);
-
-        std::vector<std::pair<int,int>> result;
-        for (int u = 0; u < n; u++)
-            if (mate[u] != NIL && mate[u] > u)
-                result.push_back({u, mate[u]});
-        std::sort(result.begin(), result.end());
-        return result;
-    }
+    /* ---- Phase 2: search on H ---- */
+    std::vector<int32_t> labelH;
+    std::vector<int32_t> parentH;         /* parentH[uh] = edge ID */
+    std::vector<int32_t> bridgeH;         /* bridgeH[vh] = edge ID */
+    std::vector<int32_t> dirH;            /* dirH[vh] = 1 or -1 */
+    std::vector<int32_t> evenTimeH;
+    int32_t tH;
 };
 
-/* ================================================================ */
-void validate_matching(int n, const std::vector<int>& adj_edges,
-                       const std::vector<int>& adj_off,
-                       const std::vector<int>& esrc, const std::vector<int>& etgt,
-                       const std::vector<std::pair<int,int>>& matching) {
-    std::vector<int> deg(n, 0);
-    int errors = 0;
-    for (auto& [u, v] : matching) {
-        bool found = false;
-        int s = adj_off[u], e = adj_off[u + 1];
-        for (int j = s; j < e; j++) {
-            int eid = adj_edges[j];
-            if ((esrc[eid] == u && etgt[eid] == v) || (esrc[eid] == v && etgt[eid] == u))
-                { found = true; break; }
+G2State emptyG2State(const GeneralGraph& graph) {
+    G2State state;
+    state.Delta = 0;
+    state.maxDeltaUsed = 0;
+    state.strue = 0.0;
+    state.freeListBuilt = false;
+    state.tH = 0;
+
+    /* Build sVtx/tVtx from the graph's adjacency. We pick each
+     * undirected edge exactly once by iterating u < v. */
+    state.sVtx.reserve(graph.numEdgs);
+    state.tVtx.reserve(graph.numEdgs);
+    for (size_t u = 0; u < graph.numVtxs; u++) {
+        for (size_t j = graph.idx[u]; j < graph.idx[u + 1]; j++) {
+            int32_t v = graph.adj[j];
+            if (static_cast<int32_t>(u) < v) {
+                state.sVtx.push_back(static_cast<int32_t>(u));
+                state.tVtx.push_back(v);
+            }
         }
-        if (!found) { fprintf(stderr, "ERROR: Edge (%d,%d) not in graph!\n", u, v); errors++; }
-        deg[u]++; deg[v]++;
     }
-    for (int i = 0; i < n; i++)
-        if (deg[i] > 1) { fprintf(stderr, "ERROR: Vertex %d in %d edges!\n", i, deg[i]); errors++; }
+
+    /* Build edgAdj (vertex -> edge IDs), reusing graph.idx as the row
+     * pointer (graph.idx[v]..graph.idx[v+1] gives the same row range
+     * since each undirected edge contributes once to each endpoint). */
+    state.edgAdj.resize(graph.idx[graph.numVtxs]);
+    std::vector<size_t> tmp_pos(graph.idx.begin(),
+                                graph.idx.begin() + graph.numVtxs);
+    for (size_t i = 0; i < graph.numEdgs; i++) {
+        state.edgAdj[tmp_pos[state.sVtx[i]]++] = static_cast<int32_t>(i);
+        state.edgAdj[tmp_pos[state.tVtx[i]]++] = static_cast<int32_t>(i);
+    }
+    state.isH.assign(graph.numEdgs, false);
+
+    state.label.assign(graph.numVtxs, UNLABELED);
+    state.parent.assign(graph.numVtxs, NIL);
+    state.sourceBridge.assign(graph.numVtxs, NIL);
+    state.targetBridge.assign(graph.numVtxs, NIL);
+    state.bd.assign(graph.numVtxs, 1);
+    state.bDelta.assign(graph.numVtxs, 0);
+
+    state.basePar.resize(graph.numVtxs);
+    for (size_t i = 0; i < graph.numVtxs; i++) state.basePar[i] = static_cast<int32_t>(i);
+    state.dbasePar.resize(graph.numVtxs);
+    for (size_t i = 0; i < graph.numVtxs; i++) state.dbasePar[i] = static_cast<int32_t>(i);
+    state.dbaseRank.assign(graph.numVtxs, 0);
+
+    state.maxPq = graph.numVtxs / 2 + 2;
+    state.L.resize(state.maxPq);
+    state.path1.assign(graph.numVtxs, 0.0);
+    state.path2.assign(graph.numVtxs, 0.0);
+
+    state.rep.resize(graph.numVtxs);
+    state.mateH.assign(graph.numVtxs, NIL);
+    state.labelH.assign(graph.numVtxs, UNLABELED);
+    state.parentH.assign(graph.numVtxs, NIL);
+    state.bridgeH.assign(graph.numVtxs, NIL);
+    state.dirH.assign(graph.numVtxs, 0);
+    state.evenTimeH.assign(graph.numVtxs, 0);
+    state.contractedInto.resize(graph.numVtxs);
+    return state;
+}
+
+/* ====================================================================
+ *                          Helpers (free functions)
+ * ==================================================================== */
+
+inline int opposite(const G2State& state, int v, int eid) {
+    return state.sVtx[eid] == v ? state.tVtx[eid] : state.sVtx[eid];
+}
+
+inline int wght(const GeneralMatching& matching, const G2State& state, int eid) {
+    return (matching.mate[state.sVtx[eid]] == state.tVtx[eid]) ? 2 : 0;
+}
+
+inline int findBase(G2State& state, int v) {
+    while (state.basePar[v] != v) {
+        state.basePar[v] = state.basePar[state.basePar[v]];
+        v = state.basePar[v];
+    }
+    return v;
+}
+
+inline int findDbase(G2State& state, int v) {
+    while (state.dbasePar[v] != v) {
+        state.dbasePar[v] = state.dbasePar[state.dbasePar[v]];
+        v = state.dbasePar[v];
+    }
+    return v;
+}
+
+inline void unionDbase(G2State& state, int a, int b) {
+    a = findDbase(state, a); b = findDbase(state, b);
+    if (a == b) return;
+    if (state.dbaseRank[a] < state.dbaseRank[b]) std::swap(a, b);
+    state.dbasePar[b] = a;
+    if (state.dbaseRank[a] == state.dbaseRank[b]) state.dbaseRank[a]++;
+}
+
+inline void makeRepDbase(G2State& state, int v) {
+    int r = findDbase(state, v);
+    if (r != v) { state.dbasePar[r] = v; state.dbasePar[v] = v; }
+}
+
+/* dual(v): dual variable, computed on demand from label and bd/bDelta checkpoints */
+inline int dual(G2State& state, int v) {
+    int bv = findBase(state, v);
+    if (state.label[bv] == UNLABELED) return 1;
+    if (state.label[bv] == EVEN) return state.bd[v] - (state.Delta - state.bDelta[v]);
+    return state.bd[v] + (state.Delta - state.bDelta[v]);
+}
+
+/* scanEdge: schedule edge into PQ at its projected tightness Delta. */
+void scanEdge(const GeneralMatching& matching, G2State& state, int eid, int z) {
+    int u = opposite(state, z, eid);
+    if (matching.mate[u] == z || state.label[findBase(state, u)] == ODD) return;
+    int p = dual(state, z) + dual(state, u);
+    int tight_at;
+    if (state.label[findBase(state, u)] == UNLABELED)
+        tight_at = state.Delta + p;
+    else
+        tight_at = state.Delta + p / 2;
+    if (tight_at >= 0 && tight_at < state.maxPq) {
+        state.L[tight_at].push_back(eid);
+        if (tight_at > state.maxDeltaUsed) state.maxDeltaUsed = tight_at;
+    }
+}
+
+/* shrinkPath: contract a half-cycle into the blossom rooted at b. */
+void shrinkPath(const GeneralGraph& graph, const GeneralMatching& matching, G2State& state,
+                 int b, int x, int y,
+                 std::vector<std::pair<int,int>>& dunions) {
+    int v = findBase(state, x);
+    while (v != b) {
+        state.basePar[v] = b;
+        dunions.push_back({v, b});
+        v = matching.mate[v];
+        state.basePar[v] = b;
+        dunions.push_back({v, b});
+        state.basePar[b] = b;
+        state.sourceBridge[v] = x;
+        state.targetBridge[v] = y;
+        state.bd[v] = state.bd[v] + (state.Delta - state.bDelta[v]);
+        state.bDelta[v] = state.Delta;
+        {
+            int s = graph.idx[v], e = graph.idx[v + 1];
+            for (int j = s; j < e; j++)
+                scanEdge(matching, state, state.edgAdj[j], v);
+        }
+        v = findBase(state, state.parent[v]);
+    }
+    dunions.push_back({b, b});
+}
+
+/* ---- Free-vertex list maintenance ---- */
+void buildFreeList(const GeneralGraph& graph, const GeneralMatching& matching, G2State& state) {
+    state.free_vertices.clear();
+    for (size_t v = 0; v < graph.numVtxs; v++)
+        if (matching.mate[v] == NIL) state.free_vertices.push_back(static_cast<int32_t>(v));
+    state.freeListBuilt = true;
+}
+
+void updateFreeList(const GeneralMatching& matching, G2State& state) {
+    int j = 0;
+    for (int i = 0; i < static_cast<int>(state.free_vertices.size()); i++)
+        if (matching.mate[state.free_vertices[i]] == NIL)
+            state.free_vertices[j++] = state.free_vertices[i];
+    state.free_vertices.resize(j);
+}
+
+/* ====================================================================
+ *                             PHASE 1
+ * ==================================================================== */
+bool phase1(const GeneralGraph& graph, const GeneralMatching& matching, G2State& state) {
+    state.Delta = 0;
+    state.treeNodes.clear();
+
+    /* Only clear L entries up to maxDeltaUsed from previous phase */
+    int clear_limit = std::min(state.maxDeltaUsed + 1, state.maxPq);
+    for (int i = 0; i < clear_limit; i++) state.L[i].clear();
+    state.maxDeltaUsed = 0;
+    std::vector<std::pair<int,int>> dunions;
+
+    /* Reset only previous tree nodes. */
+    for (int v : state.prevTreeNodes) {
+        state.basePar[v] = v;
+        state.dbasePar[v] = v;
+        state.dbaseRank[v] = 0;
+        state.label[v] = UNLABELED;
+        state.parent[v] = NIL;
+        state.sourceBridge[v] = NIL;
+        state.targetBridge[v] = NIL;
+        state.bd[v] = 1;
+        state.bDelta[v] = 0;
+        {
+            int s = graph.idx[v], e = graph.idx[v + 1];
+            for (int j = s; j < e; j++)
+                state.isH[state.edgAdj[j]] = false;
+        }
+    }
+
+    /* Build or update free vertex list */
+    if (!state.freeListBuilt)
+        buildFreeList(graph, matching, state);
+    else
+        updateFreeList(matching, state);
+
+    /* Label free vertices EVEN, then scan */
+    for (int v : state.free_vertices) {
+        state.label[v] = EVEN;
+        state.treeNodes.push_back(v);
+    }
+    for (int v : state.free_vertices) {
+        int s = graph.idx[v], e = graph.idx[v + 1];
+        for (int j = s; j < e; j++)
+            scanEdge(matching, state, state.edgAdj[j], v);
+    }
+
+    bool found_sap = false;
+
+    while (state.Delta <= state.maxDeltaUsed) {
+        /* Skip empty levels */
+        while (state.Delta <= state.maxDeltaUsed && state.L[state.Delta].empty()) state.Delta++;
+        if (state.Delta > state.maxDeltaUsed) break;
+
+        int qi = 0;
+        while (qi < static_cast<int>(state.L[state.Delta].size())) {
+            int eid = state.L[state.Delta][qi++];
+            int x = state.sVtx[eid], y = state.tVtx[eid];
+
+            /* Stale-entry guard */
+            if (dual(state, x) + dual(state, y) != wght(matching, state, eid)) continue;
+
+            if (state.label[findBase(state, x)] != EVEN) std::swap(x, y);
+            if (y == matching.mate[x] || findBase(state, x) == findBase(state, y) ||
+                state.label[findBase(state, y)] == ODD) continue;
+
+            if (state.label[findBase(state, y)] == UNLABELED) {
+                int z = matching.mate[y];
+                state.bd[y] = 1; state.bDelta[y] = state.Delta;
+                state.bd[z] = 1; state.bDelta[z] = state.Delta;
+                state.parent[z] = y;
+                state.parent[y] = x;
+                state.label[y] = ODD;
+                state.label[z] = EVEN;
+                state.treeNodes.push_back(y);
+                state.treeNodes.push_back(z);
+                {
+                    int s = graph.idx[z], e = graph.idx[z + 1];
+                    for (int j = s; j < e; j++)
+                        scanEdge(matching, state, state.edgAdj[j], z);
+                }
+
+            } else if (state.label[findBase(state, y)] == EVEN) {
+                state.strue += 1.0;
+                int hx = findBase(state, x), hy = findBase(state, y);
+                state.path1[hx] = state.strue; state.path2[hy] = state.strue;
+                int lca = NIL;
+                while (true) {
+                    if (state.path1[hy] == state.strue) { lca = hy; break; }
+                    if (state.path2[hx] == state.strue) { lca = hx; break; }
+                    bool hxr = (matching.mate[hx] == NIL || state.parent[matching.mate[hx]] == NIL);
+                    bool hyr = (matching.mate[hy] == NIL || state.parent[matching.mate[hy]] == NIL);
+                    if (hxr && hyr) break;
+                    if (!hxr) { hx = findBase(state, state.parent[matching.mate[hx]]); state.path1[hx] = state.strue; }
+                    if (!hyr) { hy = findBase(state, state.parent[matching.mate[hy]]); state.path2[hy] = state.strue; }
+                }
+                if (lca != NIL) {
+                    shrinkPath(graph, matching, state, lca, x, y, dunions);
+                    shrinkPath(graph, matching, state, lca, y, x, dunions);
+                } else {
+                    found_sap = true;
+                }
+            }
+        }
+        state.L[state.Delta].clear();
+
+        if (found_sap) {
+            /* Build H */
+            for (int v : state.treeNodes) {
+                state.contractedInto[findDbase(state, v)].push_back(v);
+                state.mateH[v] = NIL;
+            }
+            /* Mark tight edges */
+            for (int u : state.treeNodes) {
+                int uh = findDbase(state, u);
+                int s = graph.idx[u], e = graph.idx[u + 1];
+                for (int j = s; j < e; j++) {
+                    int eid = state.edgAdj[j];
+                    int v = opposite(state, u, eid);
+                    int vh = findDbase(state, v);
+                    if (uh != vh && dual(state, u) + dual(state, v) == wght(matching, state, eid)) {
+                        state.isH[eid] = true;
+                        if (wght(matching, state, eid) == 2) {
+                            state.mateH[uh] = vh;
+                            state.mateH[vh] = uh;
+                        }
+                    }
+                }
+            }
+            state.prevTreeNodes = state.treeNodes;
+            return true;
+        }
+
+        for (auto& [a, b] : dunions) {
+            if (a == b) makeRepDbase(state, a);
+            else unionDbase(state, a, b);
+        }
+        dunions.clear();
+        state.Delta++;
+    }
+    state.prevTreeNodes = state.treeNodes;
+    return false;
+}
+
+/* ====================================================================
+ *                             PHASE 2
+ * ==================================================================== */
+
+/* findApHG: recursive DFS on H. */
+int findApHG(const GeneralGraph& graph, const GeneralMatching& matching, G2State& state, int vh) {
+    (void)matching;
+    for (int v : state.contractedInto[vh]) {
+        int a_beg = graph.idx[v], a_end = graph.idx[v + 1];
+        for (int j = a_beg; j < a_end; j++) {
+            int eid = state.edgAdj[j];
+            if (!state.isH[eid]) continue;
+            int w = opposite(state, v, eid);
+            int uh = state.rep[w];
+            if (state.mateH[vh] == uh) continue;
+
+            if (state.labelH[uh] == UNLABELED) {
+                int muh = state.mateH[uh];
+                if (muh == NIL) {
+                    state.labelH[uh] = ODD;
+                    state.parentH[uh] = eid;
+                    return uh;
+                }
+                state.labelH[uh] = ODD;
+                state.labelH[muh] = EVEN;
+                state.parentH[uh] = eid;
+                state.evenTimeH[muh] = state.tH++;
+                int s = findApHG(graph, matching, state, muh);
+                if (s != NIL) return s;
+
+            } else {
+                int bh = findDbase(state, vh);
+                int zh = findDbase(state, uh);
+                if (state.evenTimeH[bh] < state.evenTimeH[zh]) {
+                    std::vector<int> tmp;
+                    std::vector<int> endpoints;
+                    while (zh != bh) {
+                        endpoints.push_back(zh);
+                        zh = state.mateH[zh];
+                        endpoints.push_back(zh);
+                        tmp.insert(tmp.begin(), zh);
+                        int pe = state.parentH[zh];
+                        zh = findDbase(state, state.rep[state.rep[state.sVtx[pe]] == zh ? state.tVtx[pe] : state.sVtx[pe]]);
+                    }
+                    for (int nd : endpoints) unionDbase(state, nd, bh);
+                    makeRepDbase(state, bh);
+                    for (int odd_node : tmp) {
+                        state.bridgeH[odd_node] = eid;
+                        state.dirH[odd_node] = (state.tVtx[eid] == v) ? 1 : -1;
+                    }
+                    for (int odd_node : tmp) {
+                        int s = findApHG(graph, matching, state, odd_node);
+                        if (s != NIL) return s;
+                    }
+                }
+            }
+        }
+    }
+    return NIL;
+}
+
+/* findPathInHG: trace augmenting path in H from vh to uh. */
+void findPathInHG(const GeneralMatching& matching, G2State& state,
+                     std::vector<int>& path, int vh, int uh) {
+    if (vh == uh) return;
+    if (state.labelH[vh] == EVEN) {
+        int mvh = state.mateH[vh];
+        int pe = state.parentH[mvh];
+        path.push_back(pe);
+        int next = state.rep[state.rep[state.sVtx[pe]] == mvh ? state.tVtx[pe] : state.sVtx[pe]];
+        findPathInHG(matching, state, path, next, uh);
+    } else {
+        int be = state.bridgeH[vh];
+        int mate_side, uh_side;
+        if (state.dirH[vh] == 1) {
+            mate_side = state.rep[state.sVtx[be]];
+            uh_side   = state.rep[state.tVtx[be]];
+        } else {
+            mate_side = state.rep[state.tVtx[be]];
+            uh_side   = state.rep[state.sVtx[be]];
+        }
+        int mt = (state.mateH[vh] != NIL) ? state.rep[state.mateH[vh]] : vh;
+        findPathInHG(matching, state, path, mate_side, mt);
+        path.push_back(be);
+        findPathInHG(matching, state, path, uh_side, uh);
+    }
+}
+
+/* findPathInG: unfold within Phase 1 blossom. */
+void findPathInG(const GeneralMatching& matching, G2State& state,
+                    std::vector<std::pair<int,int>>& pairs, int v, int u) {
+    if (v == u) return;
+    if (state.label[v] == EVEN) {
+        pairs.push_back({matching.mate[v], state.parent[matching.mate[v]]});
+        findPathInG(matching, state, pairs, state.parent[matching.mate[v]], u);
+    } else {
+        findPathInG(matching, state, pairs, state.sourceBridge[v], matching.mate[v]);
+        pairs.push_back({state.sourceBridge[v], state.targetBridge[v]});
+        findPathInG(matching, state, pairs, state.targetBridge[v], u);
+    }
+}
+
+/* augmentG: unfold H-path edges to G, augment matching. */
+void augmentG(GeneralMatching& matching, G2State& state,
+              const std::vector<int>& h_edge_ids) {
+    std::vector<std::pair<int,int>> pairs;
+    for (int eid : h_edge_ids) {
+        int u = state.sVtx[eid], v = state.tVtx[eid];
+        pairs.push_back({u, v});
+        findPathInG(matching, state, pairs, u, state.rep[u]);
+        findPathInG(matching, state, pairs, v, state.rep[v]);
+    }
+    for (auto& [a, b] : pairs) {
+        matching.mate[a] = b; matching.mate[b] = a;
+    }
+    matching.numEdgs++;
+}
+
+void phase2(const GeneralGraph& graph, GeneralMatching& matching, G2State& state) {
+    state.tH = 0;
+    for (int v : state.treeNodes) {
+        state.rep[v] = findDbase(state, v);
+        state.labelH[v] = UNLABELED;
+        state.parentH[v] = NIL;
+        state.bridgeH[v] = NIL;
+        state.dirH[v] = 0;
+        state.evenTimeH[v] = 0;
+    }
+
+    std::vector<std::vector<int>> all_paths;
+
+    for (int vh : state.treeNodes) {
+        if (vh != state.rep[vh]) continue;
+        if (state.labelH[vh] == UNLABELED && state.mateH[vh] == NIL) {
+            state.labelH[vh] = EVEN;
+            state.evenTimeH[vh] = state.tH++;
+            int found = findApHG(graph, matching, state, vh);
+            if (found != NIL) {
+                std::vector<int> path;
+                int pe = state.parentH[found];
+                path.push_back(pe);
+                int next = state.rep[state.rep[state.sVtx[pe]] == found ? state.tVtx[pe] : state.sVtx[pe]];
+                findPathInHG(matching, state, path, next, vh);
+                all_paths.push_back(std::move(path));
+            }
+        }
+    }
+
+    for (auto& p : all_paths)
+        augmentG(matching, state, p);
+
+    for (int v : state.treeNodes) {
+        state.contractedInto[v].clear();
+        state.mateH[v] = NIL;
+    }
+}
+
+/* ====================================================================
+ *                          Greedy initialization
+ * ==================================================================== */
+
+/* ---------- Greedy initial matching: simple ---------- */
+int32_t greedyInit(const GeneralGraph& graph, GeneralMatching& matching) {
+    int32_t numEdgs = 0;
+    for (size_t u = 0; u < graph.numVtxs; u++) {
+        if (matching.mate[u] != NIL) continue;
+        size_t uBegin = graph.idx[u], uEnd = graph.idx[u + 1];
+        for (size_t k = uBegin; k < uEnd; k++) {
+            int32_t v = graph.adj[k];
+            if (matching.mate[v] == NIL) {
+                matching.mate[u] = v;
+                matching.mate[v] = static_cast<int32_t>(u);
+                numEdgs++;
+                break;
+            }
+        }
+    }
+    matching.numEdgs += numEdgs;
+    return numEdgs;
+}
+
+/* ---------- Greedy initial matching: min-degree ---------- */
+int32_t greedyInitMd(const GeneralGraph& graph, GeneralMatching& matching) {
+    int32_t numEdgs = 0;
+    std::vector<int32_t> deg(graph.numVtxs, 0);
+    for (size_t u = 0; u < graph.numVtxs; u++) {
+        deg[u] = static_cast<int32_t>(graph.idx[u + 1] - graph.idx[u]);
+    }
+    std::vector<int32_t> order(graph.numVtxs);
+    for (size_t u = 0; u < graph.numVtxs; u++) order[u] = static_cast<int32_t>(u);
+    /* Sort vertices in increasing order of degree, breaking ties by vertex label. */
+    std::sort(order.begin(), order.end(), [&](int32_t u1, int32_t u2){
+        return deg[u1] < deg[u2] || (deg[u1] == deg[u2] && u1 < u2);
+    });
+    for (int32_t u : order) {
+        if (matching.mate[u] != NIL) continue;
+        int32_t best = NIL, bestDeg = INT_MAX;
+        size_t uBegin = graph.idx[u], uEnd = graph.idx[u + 1];
+        for (size_t k = uBegin; k < uEnd; k++) {
+            int32_t v = graph.adj[k];
+            if (matching.mate[v] == NIL && deg[v] < bestDeg) {
+                best = v;
+                bestDeg = deg[v];
+            }
+        }
+        if (best != NIL) {
+            matching.mate[u] = best;
+            matching.mate[best] = u;
+            numEdgs++;
+        }
+    }
+    matching.numEdgs += numEdgs;
+    return numEdgs;
+}
+
+/* ====================================================================
+ *                            Top-level driver
+ * ==================================================================== */
+int32_t g2Mcm(const GeneralGraph& graph, GeneralMatching& matching) {
+    G2State state = emptyG2State(graph);
+    int32_t numPhases = 0;
+    while (true) {
+        bool hasSap = phase1(graph, matching, state);
+        if (!hasSap) break;
+        phase2(graph, matching, state);
+        numPhases++;
+    }
+    return numPhases;
+}
+
+/* ====================================================================
+ *                            Validation + main
+ * ==================================================================== */
+void validateGeneralMatching(const GeneralGraph& graph, const GeneralMatching& matching) {
+    int32_t errors = 0;
+    int32_t numMatched = 0;
+
+    for (size_t u = 0; u < graph.numVtxs; u++) {
+        int32_t v = matching.mate[u];
+        if (v == NIL) continue;
+        numMatched++;
+        if (v < 0 || static_cast<size_t>(v) >= graph.numVtxs) {
+            fprintf(stderr, "ERROR: mate[%zu] = %d out of range\n", u, v);
+            errors++;
+        } else if (matching.mate[v] != static_cast<int32_t>(u)) {
+            fprintf(stderr, "ERROR: mate[%zu]=%d but mate[%d]=%d\n", u, v, v, matching.mate[v]);
+            errors++;
+        } else if (static_cast<int32_t>(u) < v) {
+            /* Check edge presence in graph (each undirected edge once, when u < v). */
+            size_t uBegin = graph.idx[u], uEnd = graph.idx[u + 1];
+            if (!std::binary_search(graph.adj.begin() + uBegin,
+                                    graph.adj.begin() + uEnd, v)) {
+                fprintf(stderr, "ERROR: edge (%zu,%d) not in graph\n", u, v);
+                errors++;
+            }
+        }
+    }
+
     printf("\n=== Validation Report ===\n");
-    printf("Matching size: %d\n", (int)matching.size());
+    printf("Matching size: %zu\n", matching.numEdgs);
+    printf("Vertices matched: %d\n", numMatched);
     printf("%s\n", errors > 0 ? "VALIDATION FAILED" : "VALIDATION PASSED");
     printf("=========================\n\n");
 }
@@ -648,38 +741,56 @@ void validate_matching(int n, const std::vector<int>& adj_edges,
 int main(int argc, char* argv[]) {
     printf("Gabow MCM (duals + edge IDs) - C++\n");
     printf("===================================\n\n");
+
     if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
-    int greedy_mode = 0;
+    int32_t greedyMode = 0;
     for (int i = 2; i < argc; i++) {
-        if (std::string(argv[i]) == "--greedy") greedy_mode = 1;
-        else if (std::string(argv[i]) == "--greedy-md") greedy_mode = 2;
+        if (std::string(argv[i]) == "--greedy") greedyMode = 1;
+        else if (std::string(argv[i]) == "--greedy-md") greedyMode = 2;
     }
+
     FILE* f = fopen(argv[1], "r");
     if (!f) { fprintf(stderr, "Cannot open %s\n", argv[1]); return 1; }
-    int n, m_in;
-    if (fscanf(f, "%d %d", &n, &m_in) != 2) { fprintf(stderr, "Bad header\n"); fclose(f); return 1; }
-    std::vector<std::pair<int,int>> edges;
-    edges.reserve(m_in);
-    for (int i = 0; i < m_in; i++) {
+
+    int numVtxs, numEdgs;
+    if (fscanf(f, "%d %d", &numVtxs, &numEdgs) != 2) { fprintf(stderr, "Bad header\n"); fclose(f); return 1; }
+
+    std::vector<std::pair<int32_t,int32_t>> edges;
+    edges.reserve(numEdgs);
+    for (int i = 0; i < numEdgs; i++) {
         int u, v;
         if (fscanf(f, "%d %d", &u, &v) != 2) break;
-        edges.push_back({u, v});
+        edges.push_back({static_cast<int32_t>(u), static_cast<int32_t>(v)});
     }
     fclose(f);
-    printf("Graph: %d vertices, %d edges (input)\n", n, (int)edges.size());
+
+    printf("Graph: %d vertices, %zu edges\n", numVtxs, edges.size());
+
+    GeneralGraph graph = buildGeneralGraph(numVtxs, edges);
+    GeneralMatching matching = emptyGeneralMatching(graph);
+
     auto t0 = std::chrono::high_resolution_clock::now();
-    GabowMCM gabow(n, edges);
-    printf("Graph: %d vertices, %d edges (deduped)\n", gabow.n, gabow.m);
-    auto matching = gabow.solve(greedy_mode);
+
+    int32_t greedySize = 0;
+    if (greedyMode == 1) greedySize = greedyInit(graph, matching);
+    else if (greedyMode == 2) greedySize = greedyInitMd(graph, matching);
+
+    int32_t numPhases = g2Mcm(graph, matching);
+
     auto t1 = std::chrono::high_resolution_clock::now();
-    validate_matching(n, gabow.adj_edges, gabow.adj_off, gabow.esrc, gabow.etgt, matching);
-    printf("Matching size: %d\n", (int)matching.size());
-    if (greedy_mode > 0) {
-        printf("Greedy init size: %d\n", gabow.greedy_size);
-        if ((int)matching.size() > 0)
-            printf("Greedy/Final: %.2f%%\n", 100.0 * gabow.greedy_size / matching.size());
+
+    validateGeneralMatching(graph, matching);
+
+    printf("Phases: %d\n", numPhases);
+    printf("Matching size: %zu\n", matching.numEdgs);
+    if (greedyMode > 0) {
+        printf("Greedy init size: %d\n", greedySize);
+        if (matching.numEdgs > 0)
+            printf("Greedy/Final: %.2f%%\n", 100.0 * greedySize / matching.numEdgs);
+        else
+            printf("Greedy/Final: NA\n");
     }
     printf("Time: %ld ms\n",
-        (long)std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+        static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count()));
     return 0;
 }

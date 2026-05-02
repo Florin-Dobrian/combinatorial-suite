@@ -225,7 +225,7 @@ static bool dfs(int32_t sFirst, const BipartiteGraph& graph, BipartiteMatching& 
 
 /* ---------- Top-level Hopcroft-Karp Iterative ---------- */
 
-int32_t hkIterative(const BipartiteGraph& graph, BipartiteMatching& matching) {
+int32_t hkIterativeMcm(const BipartiteGraph& graph, BipartiteMatching& matching) {
     HKIState state;
     state.sLevel.assign(graph.sNumVtxs + 1, 0);
     state.sIdx.assign(graph.sNumVtxs, 0);
@@ -288,7 +288,7 @@ int main(int argc, char* argv[]) {
     printf("=============================================================\n\n");
 
     if (argc < 2) { printf("Usage: %s <filename> [--greedy|--greedy-md]\n", argv[0]); return 1; }
-    int greedyMode = 0;
+    int32_t greedyMode = 0;
     for (int i = 2; i < argc; i++) {
         if (std::string(argv[i]) == "--greedy") greedyMode = 1;
         else if (std::string(argv[i]) == "--greedy-md") greedyMode = 2;
@@ -323,7 +323,7 @@ int main(int argc, char* argv[]) {
     if (greedyMode == 1) greedySize = greedyInit(graph, matching);
     else if (greedyMode == 2) greedySize = greedyInitMd(graph, matching);
 
-    int32_t numPhases = hkIterative(graph, matching);
+    int32_t numPhases = hkIterativeMcm(graph, matching);
 
     auto t1 = std::chrono::high_resolution_clock::now();
 

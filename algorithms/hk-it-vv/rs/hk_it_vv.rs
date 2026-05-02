@@ -240,7 +240,7 @@ fn dfs(s_first: usize, graph: &BipartiteGraph, matching: &mut BipartiteMatching,
 
 /* ---------- Top-level Hopcroft-Karp Iterative ---------- */
 
-fn hk_iterative(graph: &BipartiteGraph, matching: &mut BipartiteMatching) -> i32 {
+fn hk_iterative_mcm(graph: &BipartiteGraph, matching: &mut BipartiteMatching) -> i32 {
     let n = graph.s_num_vtxs.max(1);
     let mut state = HKIState {
         s_level: vec![0i32; graph.s_num_vtxs + 1],
@@ -359,7 +359,7 @@ fn main() {
                 _ => 0,
             };
 
-            let num_phases = hk_iterative(&graph, &mut matching);
+            let num_phases = hk_iterative_mcm(&graph, &mut matching);
 
             let duration = start.elapsed();
 

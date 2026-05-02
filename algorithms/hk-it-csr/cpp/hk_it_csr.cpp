@@ -324,14 +324,14 @@ int main(int argc, char* argv[]) {
     FILE* f = fopen(argv[1], "r");
     if (!f) { fprintf(stderr, "Cannot open file: %s\n", argv[1]); return 1; }
 
-    int sNumVtxs, tNumVtxs, numEdgsIn;
-    if (fscanf(f, "%d %d %d", &sNumVtxs, &tNumVtxs, &numEdgsIn) != 3) {
+    int sNumVtxs, tNumVtxs, numEdgs;
+    if (fscanf(f, "%d %d %d", &sNumVtxs, &tNumVtxs, &numEdgs) != 3) {
         fprintf(stderr, "Bad header\n"); fclose(f); return 1;
     }
 
     std::vector<std::pair<int32_t,int32_t>> edges;
-    edges.reserve(numEdgsIn);
-    for (int i = 0; i < numEdgsIn; i++) {
+    edges.reserve(numEdgs);
+    for (int i = 0; i < numEdgs; i++) {
         int s, t;
         if (fscanf(f, "%d %d", &s, &t) != 2) break;
         edges.push_back({static_cast<int32_t>(s), static_cast<int32_t>(t)});

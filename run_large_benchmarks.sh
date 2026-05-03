@@ -4,7 +4,7 @@
 # Usage:
 #   ./run_large_benchmarks.sh                                    # defaults
 #   ./run_large_benchmarks.sh --sizes 100k 1m --langs cpp rust
-#   ./run_large_benchmarks.sh --algos hk-re-vv mv-pure gabow-opt
+#   ./run_large_benchmarks.sh --algos hk-re-vv mv-csr g2-csr
 #   ./run_large_benchmarks.sh --mode plain greedy greedy-md
 #   ./run_large_benchmarks.sh --runs 5 --timeout 600
 #   ./run_large_benchmarks.sh --list
@@ -60,19 +60,22 @@ F_MODE=""
 # HKL pseudo-algos hk-mb-vv-lkhd / hk-mb-csr-lkhd share binaries with
 # hk-mb-vv / hk-mb-csr respectively, with --lkhd flag added at run time.
 
-ALL_GENERAL="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual gabow-dual-csr mv-pure"
+ALL_GENERAL="e1-vv e1-csr e2-vv e2-csr g1-vv g1-csr g2-vv g2-csr mv-vv mv-csr"
 ALL_BIPARTITE="hk-re-vv hk-re-csr hk-it-vv hk-it-csr hk-mb-vv hk-mb-csr hk-mb-vv-lkhd hk-mb-csr-lkhd"
 ALL_ALGOS="$ALL_GENERAL $ALL_BIPARTITE"
 
 alg_dir() {
     case "$1" in
-        edmonds-simple)     echo "edmonds-blossom-simple" ;;
-        edmonds-opt)        echo "edmonds-blossom-optimized" ;;
-        gabow-simple)       echo "gabow-simple" ;;
-        gabow-opt)          echo "gabow-optimized" ;;
-        gabow-dual)         echo "gabow-dual" ;;
-        gabow-dual-csr)     echo "gabow-dual-csr" ;;
-        mv-pure)            echo "micali-vazirani-pure" ;;
+        e1-vv)              echo "e1-vv" ;;
+        e1-csr)             echo "e1-csr" ;;
+        e2-vv)              echo "e2-vv" ;;
+        e2-csr)             echo "e2-csr" ;;
+        g1-vv)              echo "g1-vv" ;;
+        g1-csr)             echo "g1-csr" ;;
+        g2-vv)              echo "g2-vv" ;;
+        g2-csr)             echo "g2-csr" ;;
+        mv-vv)              echo "mv-vv" ;;
+        mv-csr)             echo "mv-csr" ;;
         hk-re-vv)           echo "hk-re-vv" ;;
         hk-re-csr)          echo "hk-re-csr" ;;
         hk-it-vv)           echo "hk-it-vv" ;;
@@ -91,8 +94,8 @@ alg_src() {
 
 alg_complexity() {
     case "$1" in
-        edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|gabow-dual|gabow-dual-csr|mv-pure|hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd) echo "fast" ;;
+        e1-vv|e1-csr|e2-vv|e2-csr|g1-vv|g1-csr) echo "ve" ;;
+        g2-vv|g2-csr|mv-vv|mv-csr|hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd) echo "fast" ;;
     esac
 }
 

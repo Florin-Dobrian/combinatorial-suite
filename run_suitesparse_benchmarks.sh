@@ -4,7 +4,7 @@
 # Usage:
 #   ./run_suitesparse_benchmarks.sh                                    # defaults
 #   ./run_suitesparse_benchmarks.sh --langs cpp rust
-#   ./run_suitesparse_benchmarks.sh --algos gabow-opt mv-pure
+#   ./run_suitesparse_benchmarks.sh --algos g2-csr mv-csr
 #   ./run_suitesparse_benchmarks.sh --mode plain greedy greedy-md
 #   ./run_suitesparse_benchmarks.sh --graphs fe_body auto ecology1
 #   ./run_suitesparse_benchmarks.sh --runs 5 --timeout 600
@@ -49,17 +49,20 @@ F_ALGOS=""
 F_MODE=""
 
 # ── algorithm registry ────────────────────────────────────────────────
-ALL_ALGOS="edmonds-simple edmonds-opt gabow-simple gabow-opt gabow-dual gabow-dual-csr mv-pure"
+ALL_ALGOS="e1-vv e1-csr e2-vv e2-csr g1-vv g1-csr g2-vv g2-csr mv-vv mv-csr"
 
 alg_dir() {
     case "$1" in
-        edmonds-simple) echo "edmonds-blossom-simple" ;;
-        edmonds-opt)    echo "edmonds-blossom-optimized" ;;
-        gabow-simple)   echo "gabow-simple" ;;
-        gabow-opt)      echo "gabow-optimized" ;;
-        gabow-dual)     echo "gabow-dual" ;;
-        gabow-dual-csr) echo "gabow-dual-csr" ;;
-        mv-pure)        echo "micali-vazirani-pure" ;;
+        e1-vv)  echo "e1-vv" ;;
+        e1-csr) echo "e1-csr" ;;
+        e2-vv)  echo "e2-vv" ;;
+        e2-csr) echo "e2-csr" ;;
+        g1-vv)  echo "g1-vv" ;;
+        g1-csr) echo "g1-csr" ;;
+        g2-vv)  echo "g2-vv" ;;
+        g2-csr) echo "g2-csr" ;;
+        mv-vv)  echo "mv-vv" ;;
+        mv-csr) echo "mv-csr" ;;
     esac
 }
 
@@ -69,8 +72,8 @@ alg_src() {
 
 alg_complexity() {
     case "$1" in
-        edmonds-simple|edmonds-opt|gabow-simple) echo "ve" ;;
-        gabow-opt|gabow-dual|gabow-dual-csr|mv-pure) echo "fast" ;;
+        e1-vv|e1-csr|e2-vv|e2-csr|g1-vv|g1-csr) echo "ve" ;;
+        g2-vv|g2-csr|mv-vv|mv-csr) echo "fast" ;;
     esac
 }
 

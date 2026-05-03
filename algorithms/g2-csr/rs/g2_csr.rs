@@ -349,6 +349,12 @@ fn update_free_list(matching: &GeneralMatching, state: &mut G2State) {
 
 fn phase1(graph: &GeneralGraph, matching: &GeneralMatching, state: &mut G2State) -> bool {
     state.delta = 0;
+
+    /* Move previous run's tree_nodes into prev_tree_nodes (the reset
+     * list), and reset tree_nodes for the new run. The swap is
+     * needed because phase2 reads tree_nodes between phase1 calls,
+     * so we can't clear it at the end of phase1. */
+    std::mem::swap(&mut state.prev_tree_nodes, &mut state.tree_nodes);
     state.tree_nodes.clear();
 
     /* Only clear pq entries up to max_delta_used from previous phase */
@@ -499,7 +505,7 @@ fn phase1(graph: &GeneralGraph, matching: &GeneralMatching, state: &mut G2State)
 
         if found_sap {
             /* Build H */
-            let tn = state.tree_nodes.clone();
+            let tn = std::mem::take(&mut state.tree_nodes);
             for &v in &tn {
                 let db = find_dbase(state, v);
                 state.contracted_into[db as usize].push(v);
@@ -528,7 +534,7 @@ fn phase1(graph: &GeneralGraph, matching: &GeneralMatching, state: &mut G2State)
                     }
                 }
             }
-            state.prev_tree_nodes = state.tree_nodes.clone();
+            state.tree_nodes = tn;   /* restore for phase2 */
             return true;
         }
 
@@ -542,7 +548,6 @@ fn phase1(graph: &GeneralGraph, matching: &GeneralMatching, state: &mut G2State)
         dunions.clear();
         state.delta += 1;
     }
-    state.prev_tree_nodes = state.tree_nodes.clone();
     false
 }
 
@@ -686,7 +691,7 @@ fn augment_g(matching: &mut GeneralMatching, state: &G2State, h_edge_ids: &[i32]
 
 fn phase2(graph: &GeneralGraph, matching: &mut GeneralMatching, state: &mut G2State) {
     state.t_h = 0;
-    let tn = state.tree_nodes.clone();
+    let tn = std::mem::take(&mut state.tree_nodes);
     for &v in &tn {
         let db = find_dbase(state, v);
         state.rep[v as usize] = db;
@@ -729,6 +734,7 @@ fn phase2(graph: &GeneralGraph, matching: &mut GeneralMatching, state: &mut G2St
         state.contracted_into[v as usize].clear();
         state.mate_h[v as usize] = NIL;
     }
+    state.tree_nodes = tn;
 }
 
 /* ---------- Greedy initial matching: simple ---------- */

@@ -389,8 +389,8 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             fi
             ;;
         rust)
-            src="$ALGO/$dir/rust/${base}.rs"
-            bin="$ALGO/$dir/rust/${base}_rust"
+            src="$ALGO/$dir/rs/${base}.rs"
+            bin="$ALGO/$dir/rs/${base}_rs"
             [ -f "$src" ] || continue
             printf "  compile %-20s %-6s " "$alg" "rust"
             if rustc $RUST_FLAGS "$src" -o "$bin" 2>/dev/null; then
@@ -434,7 +434,7 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
             cmd="$bin"
             ;;
         rust)
-            bin="$ALGO/$dir/rust/${base}_rust"
+            bin="$ALGO/$dir/rs/${base}_rs"
             [ -x "$bin" ] || { echo "SKIP (not compiled)"; continue; }
             cmd="$bin"
             ;;

@@ -24,3 +24,21 @@ results/
 
 # LEDA
 leda_obj/
+
+# LEDA testing artifacts
+_mc_matching_gabow_logged.cpp
+_mw_matching_logged.cpp
+build_leda_gabow.sh
+build_leda_mwm.sh
+leda_stubs.cpp
+mw_matching_logged.h
+test_leda_gabow.cpp
+test_leda_gabow_log.cpp
+test_leda_mwm_log.cpp
+
+# LEDA test outputs (binaries, traces, debug)
+test_leda_mwm_log
+test_leda_mwm_log.dSYM/
+mwm_trace.txt
+stderr.txt
+stdout.txt

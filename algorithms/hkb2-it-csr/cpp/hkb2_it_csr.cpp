@@ -31,6 +31,19 @@
  * DDFS — both were costing memory and cache misses in the 500k–1m valley
  * observed in the comparison vs HK.
  *
+ * A second simplification follows from the same H = G observation: MV's
+ * `tenacity` function has parity casework (matched-edge bridges use
+ * `oddLevel(u) + oddLevel(v) + 1`, unmatched-edge bridges use `evenLevel +
+ * evenLevel + 1`) plus a "hanging bridge" sub-case for back-edges that
+ * may be promoted later via blossom contraction.  In bipartite, every
+ * same-level bridge has both endpoints at the *same level* with the
+ * matching parity field set, so both expressions reduce to
+ * `level + level + 1`, and the bucket index `(tenacity − 1) / 2` reduces
+ * to `level` — just the common level of the two endpoints.  Back-edges
+ * (`to.minLevel < caller_level`) are dropped silently since hanging
+ * bridges can't be promoted without contraction.  The tenacity function
+ * is gone; bucket assignment is inlined in step_to.
+ *
  * Bipartite input is presented in three-object form (BipartiteGraph /
  * BipartiteMatching / HKB2IState) but the algorithm internally uses a
  * unified vertex namespace [0, sN+tN) — S in [0, sN), T in [sN, sN+tN).
@@ -290,49 +303,53 @@ struct HKB2 {
         state.bridgeNum++;
     }
 
-    /* tenacity: in bipartite we only ever generate unmatched-edge bridges
-     * during MIN at even levels.  Matched bridges (odd-level same-level
-     * matching edges) would arise only if we extended via matching at odd
-     * levels and hit a same-odd-level mate, which is structurally impossible
-     * in bipartite (a matching edge always crosses partitions, and its
-     * endpoints sit at consecutive levels in any honest BFS). */
-    int32_t tenacity(int32_t n1, int32_t n2) const {
-        if (state.nodes[n1].match == n2) {
-            /* matched bridge — needs odd_level on both ends */
-            if (state.nodes[n1].oddLevel != NIL && state.nodes[n2].oddLevel != NIL)
-                return state.nodes[n1].oddLevel + state.nodes[n2].oddLevel + 1;
-            return NIL;
-        } else {
-            /* unmatched bridge — needs even_level on both ends */
-            if (state.nodes[n1].evenLevel != NIL && state.nodes[n2].evenLevel != NIL)
-                return state.nodes[n1].evenLevel + state.nodes[n2].evenLevel + 1;
-            return NIL;
-        }
-    }
+    /* Bridge bucket index.  In bipartite, a same-level edge between two
+     * vertices both at level `i` is a bridge.  Walking back to free vertices
+     * from each endpoint covers `i` edges, plus the bridge itself, so the
+     * augmenting path through this bridge has length `2i + 1`.  In MV
+     * vocabulary, this is the bridge's "tenacity" = `2i + 1`, and the
+     * bucket key is `(tenacity − 1) / 2 = i`.  So the bucket index *is*
+     * simply the common level of the two endpoints — no parity casework,
+     * no separate even/odd treatment needed.
+     *
+     * Equivalence to MV's tenacity: MV computes `evenLevel(u) + evenLevel(v) + 1`
+     * for unmatched bridges and `oddLevel(u) + oddLevel(v) + 1` for matched
+     * bridges.  In bipartite both bridge endpoints sit at the same level
+     * (with the appropriate parity field set), so both expressions reduce
+     * to `level + level + 1`, and bucket index = `level`. */
 
-    /* step_to: line-by-line port of MV, with the hanging-bridge branch
-     * dropped (verified empty in bipartite).  Predecessor lists are no
-     * longer materialized — only the count is kept, since the actual
-     * predecessor vertices can be enumerated on demand from the CSR. */
+    /* step_to: line-by-line port of MV, simplified for bipartite.
+     *
+     * The non-bridge branch is the prop step: extend BFS to `to` at level
+     * `level+1`.  The bridge branch fires when `to` is *already* at the
+     * caller's level — i.e., same-level edge connecting two vertices that
+     * BFS reached at the same depth from different free roots.
+     *
+     * MV has a third sub-case here: "hanging bridges" — `to` already at
+     * some lower level (a back-edge in the BFS DAG).  In MV, these may
+     * become useful later if blossom contraction reveals that the BFS
+     * was working in a contracted graph H where the symmetric distance
+     * is actually achievable.  In bipartite there's no contraction, so
+     * hanging bridges never get promoted — we simply ignore them.
+     *
+     * Predecessor lists are no longer materialized — only the count is
+     * kept, since the actual predecessor vertices can be enumerated on
+     * demand from the CSR. */
     void stepTo(int32_t to, int32_t from, int32_t level) {
-        level++;
+        int32_t newLevel = level + 1;
         int32_t tl = state.nodes[to].minLevel;
-        if (tl == NIL || tl >= level) {
-            if (tl != level) {
-                addToLevel(level, to);
-                state.nodes[to].setMinLevel(level);
+        if (tl == NIL || tl >= newLevel) {
+            /* prop step */
+            if (tl != newLevel) {
+                addToLevel(newLevel, to);
+                state.nodes[to].setMinLevel(newLevel);
             }
             state.nodes[to].numPreds++;
-        } else {
-            /* same-level edge → bridge.  In bipartite, tenacity is sometimes
-             * NIL at this point (the "hanging" case in MV).  Empirically
-             * verified: hanging bridges never get promoted into useful
-             * augmenting paths in bipartite, because promotion only happens
-             * via petal contraction (which cannot occur).  So we silently
-             * drop them — this is the only deviation from MV. */
-            int32_t ten = tenacity(to, from);
-            if (ten != NIL) addToBridges((ten - 1) / 2, to, from);
+        } else if (tl == level) {
+            /* same-level bridge — bucket index is the common level */
+            addToBridges(level, to, from);
         }
+        /* else: back-edge (tl < level), silently dropped */
     }
 
     void MIN(int32_t i) {

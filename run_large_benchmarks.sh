@@ -61,7 +61,7 @@ F_MODE=""
 # hk-mb-vv / hk-mb-csr respectively, with --lkhd flag added at run time.
 
 ALL_GENERAL="e1-vv e1-csr e2-vv e2-csr g1-vv g1-csr g2-vv g2-csr mv-vv mv-csr"
-ALL_BIPARTITE="hk-re-vv hk-re-csr hk-it-vv hk-it-csr hk-mb-vv hk-mb-csr hk-mb-vv-lkhd hk-mb-csr-lkhd"
+ALL_BIPARTITE="hk-re-vv hk-re-csr hk-it-vv hk-it-csr hk-mb-vv hk-mb-csr hk-mb-vv-lkhd hk-mb-csr-lkhd hkb1-it-csr hkb2-it-csr"
 ALL_ALGOS="$ALL_GENERAL $ALL_BIPARTITE"
 
 alg_dir() {
@@ -84,6 +84,8 @@ alg_dir() {
         hk-mb-csr)          echo "hk-mb-csr" ;;
         hk-mb-vv-lkhd)      echo "hk-mb-vv" ;;
         hk-mb-csr-lkhd)     echo "hk-mb-csr" ;;
+        hkb1-it-csr)        echo "hkb1-it-csr" ;;
+        hkb2-it-csr)        echo "hkb2-it-csr" ;;
     esac
 }
 
@@ -95,13 +97,13 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         e1-vv|e1-csr|e2-vv|e2-csr|g1-vv|g1-csr) echo "ve" ;;
-        g2-vv|g2-csr|mv-vv|mv-csr|hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd) echo "fast" ;;
+        g2-vv|g2-csr|mv-vv|mv-csr|hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd|hkb1-it-csr|hkb2-it-csr) echo "fast" ;;
     esac
 }
 
 alg_type() {
     case "$1" in
-        hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd) echo "bipartite" ;;
+        hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd|hkb1-it-csr|hkb2-it-csr) echo "bipartite" ;;
         *)  echo "general" ;;
     esac
 }

@@ -338,108 +338,107 @@ static bool search(const BipartiteGraph& graph,
     return !state.bridges.empty();
 }
 
-/* ---------- Augment: walk from each bridge back to its tree's free root ----------
+/* ---------- Augment: HK-style forward DFS from each free S ----------
  *
- * For a bridge (s_b, t_b) with s_b in S-tree at level a, t_b in T-tree at level b:
+ * Phase 1 built a bidirectional BFS structure:
+ *   S-tree (rooted at free S): EVEN-S at sLvl 0,1,2,...; ODD-T at tLvl 1,2,...
+ *   T-tree (rooted at free T): EVEN-T at tLvl 0,1,2,...; ODD-S at sLvl 1,2,...
+ *   Bridge: an EVEN-EVEN cross-tree edge.
  *
- *   S-tree walk (down from s_b to free S root):
- *     s_a = s_b
- *     loop:
- *       t_a = matching.sMate[s_a]        (matched edge to ODD at same level)
- *       s_{a-1} = state.tOddParent[t_a]  (unmatched edge to EVEN at level d-1)
- *       a -= 1
- *     until sLevel[s_a] == 0.
+ * An AP from free_S to free_T crosses exactly one bridge edge (the unique
+ * tree-switch). It has structure:
  *
- *   T-tree walk (down from t_b to free T root): symmetric.
+ *   free_S (sLvl 0) -> ... -> bridge_S (sLvl a) - bridge - bridge_T (tLvl b)
+ *                                                       -> ... -> free_T (tLvl 0)
  *
- * After collecting both paths, flip every edge in the AP. New matched edges
- * are exactly the unmatched edges in the path (the GROW edges + the bridge).
+ * Note: a and b are independent -- they don't have to be equal. "Early
+ * bridges" scheduled when one endpoint was UNLABELED can have a+b > bucket
+ * level. The AP is still valid as long as both halves of the walk land on
+ * level-monotone tight edges.
+ *
+ * Single forward DFS function. Augmentation starts from S side (free S)
+ * only -- the walk goes forward through both trees in one pass. Dispatch
+ * on sLabel of the current S-vertex:
+ *
+ *   EVEN-S (in S-tree at sLvl L):
+ *     For each unmatched adjacent t:
+ *       - tLbl ODD, tLvl == L+1   -> S-tree forward (matched edge -> recurse)
+ *       - tLbl EVEN               -> bridge crossing into T-tree
+ *
+ *   ODD-S (in T-tree at sLvl m, post-bridge):
+ *     For each unmatched adjacent t:
+ *       - tLbl EVEN, tLvl == m-1  -> T-tree forward (matched edge -> recurse)
+ *
+ * Each successful step flips the unmatched edge to matched on return.
+ * visited[] persists HK-style.
+ *
+ * MSAP completeness: adjacency enumeration at each step provides multiple
+ * routes through any vertex -- distinct bridges can yield vertex-disjoint
+ * APs through different intermediate paths, matching HK / MV / HKB2.
  */
 
-static bool tryWalkAP(int32_t s_b, int32_t t_b,
-                      const BipartiteMatching& matching,
-                      HKB1IState& state) {
-    state.sPath.clear();
-    state.tPath.clear();
-    state.sPath2.clear();
-    state.tPath2.clear();
-
-    /* S-tree walk from s_b down to free S root. */
-    int32_t s = s_b;
-    while (state.sLevel[s] > 0) {
-        if (state.sVisited[s]) return false;
-        state.sPath.push_back(s);
-        int32_t t = matching.sMate[s];
-        if (state.tVisited[t]) return false;
-        state.tPath.push_back(t);
-        s = state.tOddParent[t];
-    }
+static bool dfsAP(int32_t s,
+                  const BipartiteGraph& graph,
+                  BipartiteMatching& matching,
+                  HKB1IState& state) {
     if (state.sVisited[s]) return false;
-    state.sPath.push_back(s);     /* free S root */
+    state.sVisited[s] = true;
 
-    /* T-tree walk from t_b down to free T root. */
-    int32_t t = t_b;
-    while (state.tLevel[t] > 0) {
-        if (state.tVisited[t]) return false;
-        state.tPath2.push_back(t);
-        int32_t s2 = matching.tMate[t];
-        if (state.sVisited[s2]) return false;
-        state.sPath2.push_back(s2);
-        t = state.sOddParent[s2];
+    int32_t sLvl = state.sLevel[s];
+    int8_t  sLbl = state.sLabel[s];
+    size_t a_begin = graph.sIdx[s], a_end = graph.sIdx[s + 1];
+
+    for (size_t k = a_begin; k < a_end; k++) {
+        int32_t t = graph.sAdj[k];
+        if (t == matching.sMate[s]) continue;   /* skip matched edge */
+        if (state.tVisited[t]) continue;
+
+        int8_t  tLbl = state.tLabel[t];
+        int32_t tLvl = state.tLevel[t];
+        bool admit = false;
+
+        if (sLbl == LBL_EVEN) {
+            /* S-tree side. */
+            if (tLbl == LBL_ODD && tLvl == sLvl + 1) admit = true;  /* forward in S-tree */
+            else if (tLbl == LBL_EVEN)               admit = true;  /* bridge crossing */
+        } else if (sLbl == LBL_ODD) {
+            /* T-tree side (post-bridge). */
+            if (tLbl == LBL_EVEN && tLvl == sLvl - 1) admit = true;
+        }
+        if (!admit) continue;
+
+        state.tVisited[t] = true;
+        int32_t next_s = matching.tMate[t];
+
+        if (next_s == NIL) {
+            /* t is free T -- AP found. */
+            matching.sMate[s] = t;
+            matching.tMate[t] = s;
+            return true;
+        }
+        if (dfsAP(next_s, graph, matching, state)) {
+            matching.sMate[s] = t;
+            matching.tMate[t] = s;
+            return true;
+        }
     }
-    if (state.tVisited[t]) return false;
-    state.tPath2.push_back(t);    /* free T root */
-
-    return true;
+    return false;
 }
 
-static int32_t augment(const BipartiteGraph& /*graph*/,
+static int32_t augment(const BipartiteGraph& graph,
                        BipartiteMatching& matching,
                        HKB1IState& state) {
     std::fill(state.sVisited.begin(), state.sVisited.end(), false);
     std::fill(state.tVisited.begin(), state.tVisited.end(), false);
 
     int32_t newEdgs = 0;
-    for (auto& bridge : state.bridges) {
-        int32_t s_b = bridge.first, t_b = bridge.second;
-        if (state.sVisited[s_b] || state.tVisited[t_b]) continue;
-
-        if (!tryWalkAP(s_b, t_b, matching, state)) continue;
-
-        /* Flip the AP. The path is:
-         *   free_S = sPath.back(), tPath.back(), ..., sPath[0] = s_b
-         *      ─ bridge ─
-         *   t_b = tPath2[0], sPath2[0], ..., tPath2.back() = free_T
-         *
-         * New matched edges (unmatched edges of the original AP):
-         *   (sPath[i+1], tPath[i])  for i in 0..tPath.size()-1   (S-tree GROW edges)
-         *   (s_b, t_b)                                            (the bridge)
-         *   (sPath2[i], tPath2[i+1]) for i in 0..sPath2.size()-1  (T-tree GROW edges)
-         *
-         * Overwriting mates is safe: the old matched edges in the path are
-         * exactly the ones whose endpoints get reassigned to new mates by
-         * the assignments below. */
-        for (size_t i = 0; i < state.tPath.size(); i++) {
-            int32_t snew = state.sPath[i + 1];
-            int32_t tnew = state.tPath[i];
-            matching.sMate[snew] = tnew;
-            matching.tMate[tnew] = snew;
+    for (size_t s = 0; s < graph.sNumVtxs; s++) {
+        if (matching.sMate[s] != NIL) continue;       /* not free */
+        if (state.sVisited[s]) continue;
+        if (state.sLabel[s] != LBL_EVEN) continue;    /* must be S-tree EVEN at sLvl 0 */
+        if (dfsAP(static_cast<int32_t>(s), graph, matching, state)) {
+            newEdgs++;
         }
-        matching.sMate[s_b] = t_b;
-        matching.tMate[t_b] = s_b;
-        for (size_t i = 0; i < state.sPath2.size(); i++) {
-            int32_t snew = state.sPath2[i];
-            int32_t tnew = state.tPath2[i + 1];
-            matching.sMate[snew] = tnew;
-            matching.tMate[tnew] = snew;
-        }
-
-        for (int32_t v : state.sPath)  state.sVisited[v] = true;
-        for (int32_t v : state.tPath)  state.tVisited[v] = true;
-        for (int32_t v : state.sPath2) state.sVisited[v] = true;
-        for (int32_t v : state.tPath2) state.tVisited[v] = true;
-
-        newEdgs++;
     }
     return newEdgs;
 }

@@ -282,12 +282,16 @@ static bool search(const BipartiteGraph& graph,
         if (matching.tMate[t] == NIL) scheduleT(static_cast<int32_t>(t), graph, matching, state);
     }
 
-    /* Drain buckets in level-increasing order; stop at first level with bridges. */
+    /* Drain buckets in level-increasing order; stop at first level with bridges.
+     * FIFO within a bucket via qi++ walk: mirrors g2_csr.cpp's drain discipline
+     * (g2 lines 386-388). Mid-drain pushes (a GROW spawning bridges to free
+     * EVENs into the current bucket) sit at the tail and get processed after
+     * older entries, preserving BFS-order within the bucket. */
     for (int32_t d = 0; d < static_cast<int32_t>(state.buckets.size()); d++) {
         bool foundThisLevel = false;
-        while (!state.buckets[d].empty()) {
-            auto edge = state.buckets[d].back();
-            state.buckets[d].pop_back();
+        size_t qi = 0;
+        while (qi < state.buckets[d].size()) {
+            auto edge = state.buckets[d][qi++];
             int32_t s = edge.first, t = edge.second;
             int8_t sLbl = state.sLabel[s], tLbl = state.tLabel[t];
 

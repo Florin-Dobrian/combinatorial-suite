@@ -106,6 +106,7 @@ struct HKB1IState {
 
     std::vector<int32_t> sPath, tPath;
     std::vector<int32_t> sPath2, tPath2;
+    int32_t committedD;          /* bucket level the bridges fired at */
 };
 
 /* ---------- BipartiteGraph construction ---------- */
@@ -158,49 +159,58 @@ BipartiteMatching emptyBipartiteMatching(const BipartiteGraph& g) {
 /* ---------- Greedy initialization ---------- */
 
 int32_t greedyInit(const BipartiteGraph& graph, BipartiteMatching& matching) {
-    int32_t cnt = 0;
+    int32_t numEdgs = 0;
     for (size_t s = 0; s < graph.sNumVtxs; s++) {
+        if (matching.sMate[s] != NIL) continue;
         size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
         for (size_t k = sBegin; k < sEnd; k++) {
             int32_t t = graph.sAdj[k];
             if (matching.tMate[t] == NIL) {
                 matching.sMate[s] = t;
                 matching.tMate[t] = static_cast<int32_t>(s);
-                matching.numEdgs++;
-                cnt++;
+                numEdgs++;
                 break;
             }
         }
     }
-    return cnt;
+    matching.numEdgs += numEdgs;
+    return numEdgs;
 }
 
 int32_t greedyInitMd(const BipartiteGraph& graph, BipartiteMatching& matching) {
-    std::vector<int32_t> sDeg(graph.sNumVtxs), tDeg(graph.tNumVtxs);
-    for (size_t s = 0; s < graph.sNumVtxs; s++) sDeg[s] = static_cast<int32_t>(graph.sIdx[s + 1] - graph.sIdx[s]);
-    for (size_t t = 0; t < graph.tNumVtxs; t++) tDeg[t] = static_cast<int32_t>(graph.tIdx[t + 1] - graph.tIdx[t]);
-    std::vector<int32_t> order(graph.sNumVtxs);
-    for (size_t s = 0; s < graph.sNumVtxs; s++) order[s] = static_cast<int32_t>(s);
-    std::sort(order.begin(), order.end(), [&](int32_t a, int32_t b) { return sDeg[a] < sDeg[b]; });
-
-    int32_t cnt = 0;
-    for (int32_t s : order) {
+    int32_t numEdgs = 0;
+    std::vector<int32_t> deg(graph.tNumVtxs, 0);
+    for (size_t s = 0; s < graph.sNumVtxs; s++) {
         size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
-        int32_t bestT = NIL, bestDeg = INT_MAX;
+        for (size_t k = sBegin; k < sEnd; k++) deg[graph.sAdj[k]]++;
+    }
+    std::vector<int32_t> sOrder(graph.sNumVtxs);
+    for (size_t s = 0; s < graph.sNumVtxs; s++) sOrder[s] = static_cast<int32_t>(s);
+    /* Sort s-vertices in increasing order of degree, breaking ties by vertex label. */
+    std::sort(sOrder.begin(), sOrder.end(), [&](int32_t s1, int32_t s2){
+        size_t s1Deg = graph.sIdx[s1 + 1] - graph.sIdx[s1];
+        size_t s2Deg = graph.sIdx[s2 + 1] - graph.sIdx[s2];
+        return s1Deg < s2Deg || (s1Deg == s2Deg && s1 < s2);
+    });
+    for (int32_t s : sOrder) {
+        if (matching.sMate[s] != NIL) continue;
+        int32_t best = NIL, bestDeg = INT_MAX;
+        size_t sBegin = graph.sIdx[s], sEnd = graph.sIdx[s + 1];
         for (size_t k = sBegin; k < sEnd; k++) {
             int32_t t = graph.sAdj[k];
-            if (matching.tMate[t] == NIL && tDeg[t] < bestDeg) {
-                bestT = t; bestDeg = tDeg[t];
+            if (matching.tMate[t] == NIL && deg[t] < bestDeg) {
+                best = t;
+                bestDeg = deg[t];
             }
         }
-        if (bestT != NIL) {
-            matching.sMate[s] = bestT;
-            matching.tMate[bestT] = s;
-            matching.numEdgs++;
-            cnt++;
+        if (best != NIL) {
+            matching.sMate[s] = best;
+            matching.tMate[best] = s;
+            numEdgs++;
         }
     }
-    return cnt;
+    matching.numEdgs += numEdgs;
+    return numEdgs;
 }
 
 /* ---------- HKB1 search: bidirectional bucket-PQ by level ---------- */
@@ -299,14 +309,15 @@ static bool search(const BipartiteGraph& graph,
             if (sLbl == LBL_ODD || tLbl == LBL_ODD) continue;
 
             if (sLbl == LBL_EVEN && tLbl == LBL_EVEN) {
-                /* Both EVEN. In bipartite an EVEN-S is always in the S-tree
-                 * and an EVEN-T always in the T-tree — different trees by
-                 * construction — so every EVEN-EVEN pop is a bridge. Push
-                 * unconditionally; doubly-booked entries (both endpoints
-                 * scheduled this edge) push the same bridge twice, and the
-                 * augment phase handles duplicates via the visited check. */
-                state.bridges.emplace_back(s, t);
-                foundThisLevel = true;
+                /* Both EVEN -> bridge candidate. Record only when the edge is
+                 * tight at THIS level, i.e. sLvl + tLvl == d, giving a length
+                 * 2d+1 shortest AP. An early bridge (scheduled stale, with
+                 * sLvl + tLvl > d) is not the shortest yet; skip it here and
+                 * let it fire at its true level d' = sLvl + tLvl later. */
+                if (state.sLevel[s] + state.tLevel[t] == d) {
+                    state.bridges.emplace_back(s, t);
+                    foundThisLevel = true;
+                }
                 continue;
             }
 
@@ -332,7 +343,7 @@ static bool search(const BipartiteGraph& graph,
                 scheduleT(mateS, graph, matching, state);
             }
         }
-        if (foundThisLevel) break;
+        if (foundThisLevel) { state.committedD = d; break; }
     }
 
     return !state.bridges.empty();
@@ -400,7 +411,7 @@ static bool dfsAP(int32_t s,
         if (sLbl == LBL_EVEN) {
             /* S-tree side. */
             if (tLbl == LBL_ODD && tLvl == sLvl + 1) admit = true;  /* forward in S-tree */
-            else if (tLbl == LBL_EVEN)               admit = true;  /* bridge crossing */
+            else if (tLbl == LBL_EVEN && sLvl + tLvl == state.committedD) admit = true;  /* bridge at committed level only */
         } else if (sLbl == LBL_ODD) {
             /* T-tree side (post-bridge). */
             if (tLbl == LBL_EVEN && tLvl == sLvl - 1) admit = true;

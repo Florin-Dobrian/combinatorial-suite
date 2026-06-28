@@ -11,9 +11,10 @@
 #   ./run_suitesparse_benchmarks.sh --list
 #
 # Defaults:
-#   graphs:   all .txt files in data/general-unweighted/suitesparse/
+#   graphs:   all .txt files in data/general-unweighted/suitesparse/  (general algos)
+#         and all .txt files in data/bipartite-unweighted/suitesparse/ (bipartite algos)
 #   langs:    cpp rust python
-#   algos:    auto (all 5 for V ≤ 200k, GO+MV for larger)
+#   algos:    auto (all 5 general for V ≤ 200k, GO+MV for larger; all bipartite)
 #   mode:     plain greedy-md
 #   runs:     3 (reports median)
 #   timeout:  600s per run
@@ -29,7 +30,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$SCRIPT_DIR"
 ALGO="$REPO/algorithms"
-DATADIR="$REPO/data/general-unweighted/suitesparse"
+GENDIR="$REPO/data/general-unweighted/suitesparse"
+BIPDIR="$REPO/data/bipartite-unweighted/suitesparse"
 OUTDIR="$REPO/results/suitesparse"
 RUNS=3
 TIMEOUT=600
@@ -49,7 +51,11 @@ F_ALGOS=""
 F_MODE=""
 
 # ── algorithm registry ────────────────────────────────────────────────
-ALL_ALGOS="e1-vv e1-csr e2-vv e2-csr g1-vv g1-csr g2-vv g2-csr mv-vv mv-csr"
+ALL_GENERAL="e1-vv e1-csr e2-vv e2-csr g1-vv g1-csr g2-vv g2-csr mv-vv mv-csr"
+# HKL pseudo-algos hk-mb-vv-lkhd / hk-mb-csr-lkhd share binaries with
+# hk-mb-vv / hk-mb-csr respectively, with --lkhd flag added at run time.
+ALL_BIPARTITE="hk-re-vv hk-re-csr hk-it-vv hk-it-csr hk-mb-vv hk-mb-csr hk-mb-vv-lkhd hk-mb-csr-lkhd hkb1-it-csr hkb2-it-csr"
+ALL_ALGOS="$ALL_GENERAL $ALL_BIPARTITE"
 
 alg_dir() {
     case "$1" in
@@ -63,6 +69,16 @@ alg_dir() {
         g2-csr) echo "g2-csr" ;;
         mv-vv)  echo "mv-vv" ;;
         mv-csr) echo "mv-csr" ;;
+        hk-re-vv)       echo "hk-re-vv" ;;
+        hk-re-csr)      echo "hk-re-csr" ;;
+        hk-it-vv)       echo "hk-it-vv" ;;
+        hk-it-csr)      echo "hk-it-csr" ;;
+        hk-mb-vv)       echo "hk-mb-vv" ;;
+        hk-mb-csr)      echo "hk-mb-csr" ;;
+        hk-mb-vv-lkhd)  echo "hk-mb-vv" ;;
+        hk-mb-csr-lkhd) echo "hk-mb-csr" ;;
+        hkb1-it-csr)    echo "hkb1-it-csr" ;;
+        hkb2-it-csr)    echo "hkb2-it-csr" ;;
     esac
 }
 
@@ -73,7 +89,14 @@ alg_src() {
 alg_complexity() {
     case "$1" in
         e1-vv|e1-csr|e2-vv|e2-csr|g1-vv|g1-csr) echo "ve" ;;
-        g2-vv|g2-csr|mv-vv|mv-csr) echo "fast" ;;
+        *) echo "fast" ;;
+    esac
+}
+
+alg_type() {
+    case "$1" in
+        hk-re-vv|hk-re-csr|hk-it-vv|hk-it-csr|hk-mb-vv|hk-mb-csr|hk-mb-vv-lkhd|hk-mb-csr-lkhd|hkb1-it-csr|hkb2-it-csr) echo "bipartite" ;;
+        *) echo "general" ;;
     esac
 }
 
@@ -106,7 +129,8 @@ while [ $# -gt 0 ]; do
             ;;
         --runs)    shift; RUNS="$1"; shift ;;
         --timeout) shift; TIMEOUT="$1"; shift ;;
-        --datadir) shift; DATADIR="$1"; shift ;;
+        --datadir) shift; GENDIR="$1"; shift ;;
+        --bipdir)  shift; BIPDIR="$1"; shift ;;
         --outdir)  shift; OUTDIR="$1"; shift ;;
         --list)    LIST_ONLY=1; shift ;;
         --help|-h)
@@ -252,24 +276,44 @@ run_with_timeout() {
 }
 
 # ── discover graph files ──────────────────────────────────────────────
-if [ ! -d "$DATADIR" ]; then
-    echo "ERROR: Data directory not found: $DATADIR"
-    echo "Download SuiteSparse matrices and convert with mtx_to_edgelist.py."
+# General header:   |V| |E|        Bipartite header: |S| |T| |E|
+# graph_vertices echoes the total vertex count (S+T for bipartite).
+graph_vertices() {
+    head -1 "$1" | awk '{ if (NF >= 3) print $1 + $2; else print $1 }'
+}
+
+# graph_edges echoes the edge count for either format.
+graph_edges() {
+    head -1 "$1" | awk '{ if (NF >= 3) print $3; else print $2 }'
+}
+
+collect_graphs() {
+    dir="$1"
+    [ -d "$dir" ] || return 0
+    for f in "$dir"/*.txt; do
+        [ -f "$f" ] || continue
+        gname="$(basename "$f" .txt)"
+        if [ -n "$F_GRAPHS" ]; then
+            echo "$F_GRAPHS" | grep -qw "$gname" || continue
+        fi
+        printf '%s\n' "$f"
+    done
+}
+
+if [ ! -d "$GENDIR" ] && [ ! -d "$BIPDIR" ]; then
+    echo "ERROR: No data directory found:"
+    echo "  general:   $GENDIR"
+    echo "  bipartite: $BIPDIR"
+    echo "Download SuiteSparse matrices and convert (mtx_to_edgelist.py / mtx2txt.py)."
     exit 1
 fi
 
-GRAPH_FILES=""
-for f in "$DATADIR"/*.txt; do
-    [ -f "$f" ] || continue
-    gname="$(basename "$f" .txt)"
-    if [ -n "$F_GRAPHS" ]; then
-        echo "$F_GRAPHS" | grep -qw "$gname" || continue
-    fi
-    GRAPH_FILES="$GRAPH_FILES $f"
-done
+GEN_GRAPH_FILES="$(collect_graphs "$GENDIR")"
+BIP_GRAPH_FILES="$(collect_graphs "$BIPDIR")"
+GRAPH_FILES="$(printf '%s\n%s\n' "$GEN_GRAPH_FILES" "$BIP_GRAPH_FILES" | grep -v '^$' || true)"
 
 if [ -z "$GRAPH_FILES" ]; then
-    echo "ERROR: No graph files found in $DATADIR"
+    echo "ERROR: No graph files found in $GENDIR or $BIPDIR"
     exit 1
 fi
 
@@ -287,7 +331,7 @@ plan_count=0
 add_to_plan() {
     alg="$1"; graph="$2"; lang="$3"; mode="$4"
     gname="$(basename "$graph" .txt)"
-    v="$(head -1 "$graph" | awk '{print $1}')"
+    v="$(graph_vertices "$graph")"
 
     # Auto-skip O(VE) algorithms on large graphs (> 200K) unless explicitly requested
     if [ -z "$F_ALGOS" ] && [ "$(alg_complexity "$alg")" = "ve" ] && [ "$v" -gt 200000 ]; then
@@ -312,7 +356,13 @@ add_modes() {
 }
 
 for alg in $RUN_ALGOS; do
-    for graph in $GRAPH_FILES; do
+    if [ "$(alg_type "$alg")" = "bipartite" ]; then
+        alg_graphs="$BIP_GRAPH_FILES"
+    else
+        alg_graphs="$GEN_GRAPH_FILES"
+    fi
+    for graph in $alg_graphs; do
+        [ -n "$graph" ] || continue
         for lang in $F_LANGS; do
             add_modes "$alg" "$graph" "$lang"
         done
@@ -326,7 +376,8 @@ echo "============================================="
 echo ""
 echo "  Run:            $RUN_ID"
 echo "  Output:         $OUTDIR"
-echo "  Data directory: $DATADIR"
+echo "  General dir:    $GENDIR"
+echo "  Bipartite dir:  $BIPDIR"
 echo "  Languages:     $F_LANGS"
 echo "  Mode:           $F_MODE"
 echo "  Runs per job:   $RUNS (report median)"
@@ -422,7 +473,12 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
 
     dir="$(alg_dir "$alg")"
     base="$(alg_src "$alg")"
-    logbase="$OUTDIR/logs/${base}_${lang}_${gname}_${greedy}"
+    case "$alg" in
+        hk-mb-vv-lkhd|hk-mb-csr-lkhd)
+            logbase="$OUTDIR/logs/${base}_lkhd_${lang}_${gname}_${greedy}" ;;
+        *)
+            logbase="$OUTDIR/logs/${base}_${lang}_${gname}_${greedy}" ;;
+    esac
 
     printf "  [%3d/%d] %-18s %-6s %-10s %-25s " "$job" "$plan_count" "$alg" "$lang" "$greedy" "$gname"
 
@@ -449,6 +505,9 @@ echo "$PLAN" | while IFS='|' read -r alg graph lang gname v greedy; do
     extra_args=""
     [ "$greedy" = "greedy" ] && extra_args="--greedy"
     [ "$greedy" = "greedy-md" ] && extra_args="--greedy-md"
+    case "$alg" in
+        hk-mb-vv-lkhd|hk-mb-csr-lkhd) extra_args="$extra_args --lkhd" ;;
+    esac
 
     # Run N times
     times=""
@@ -581,17 +640,22 @@ cat >> "$REPORT" << EOF
 
 ## Graph Properties
 
-| Graph | V | E | Avg Degree | Source |
-|-------|--:|--:|----------:|--------|
+| Graph | Type | V | E | Avg Degree |
+|-------|------|--:|--:|----------:|
 EOF
 
 for f in $GRAPH_FILES; do
+    [ -n "$f" ] || continue
     gname="$(basename "$f" .txt)"
-    header="$(head -1 "$f")"
-    gv="$(echo "$header" | awk '{print $1}')"
-    ge="$(echo "$header" | awk '{print $2}')"
+    if [ "$(head -1 "$f" | awk '{print NF}')" -ge 3 ]; then
+        gtype="bipartite"
+    else
+        gtype="general"
+    fi
+    gv="$(graph_vertices "$f")"
+    ge="$(graph_edges "$f")"
     avg_deg="$(awk "BEGIN{printf \"%.1f\", 2*$ge/$gv}")"
-    echo "| $gname | $gv | $ge | $avg_deg | SuiteSparse |" >> "$REPORT"
+    echo "| $gname | $gtype | $gv | $ge | $avg_deg |" >> "$REPORT"
 done
 
 echo "" >> "$REPORT"
